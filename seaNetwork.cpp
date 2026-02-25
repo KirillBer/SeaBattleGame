@@ -12,26 +12,36 @@ using asio::ip::tcp;
 class P2PMessenger {
 private:
 public:
+	typedef enum MessageType{
+		SERVICE,
+		MESSAGE,
+		MOVE
+	}MessageType;
     asio::io_context io_context_;
     tcp::acceptor acceptor_;
     std::shared_ptr<tcp::socket> connected_socket_;
     std::atomic<bool> running_{true};
     std::thread io_thread_;
-    std::mutex queue_mutex_;
+    std::mutex mutex_;
     std::queue<std::string> message_queue_;
     
     std::string remote_ip_;
+    std::string local_ip_;
     unsigned short remote_port_;
     unsigned short listen_port_;
     
 public:
-    P2PMessenger() : acceptor_(io_context_) {
+    P2PMessenger() : acceptor_(io_context_){
+
+    	
         //"Попросить" ОС назначить любой свободный порт
         tcp::endpoint endpoint(tcp::v4(), 0);  //Создать точку подключения. 0 = "дай любой свободный порт"
         acceptor_.open(endpoint.protocol());	//Открыть сетевой порт
         acceptor_.set_option(tcp::acceptor::reuse_address(true));	//Разрешить использовать адрес, даже если он использовался недавно
         acceptor_.bind(endpoint);	//Привязать сокет к конкретному IP и порту
         acceptor_.listen();	//Перевести acceptor в режим ожидания подключения (только с этого момента начнёт "слушать")
+        
+        //local_ip_ = acceptor_.address().to_string();
         
         //Узнать, какой порт нам дала ОС
         listen_port_ = acceptor_.local_endpoint().port();
@@ -61,7 +71,7 @@ public:
             
             if (input.substr(0, 9) == "/connect ") {	// Команда подключения
                 
-                handle_connect_command(input);
+                handle_connect(input);
             }
             else if (input == "/exit") {
                 running_ = false;
@@ -82,6 +92,22 @@ public:
     
 private:
 public:
+	std::string get_local_ip(){
+		try {
+            asio::io_context tmp_io_context;
+            tcp::resolver resolver(tmp_io_context);
+            
+            auto endpoints = resolver.resolve(asio::ip::host_name(), "");	//Получаем локальный hostname и резолвим его
+            for (const auto& endpoint : endpoints) {
+                auto addr = endpoint.endpoint().address();
+                if (addr.is_v4() && !addr.is_loopback())	//Проверяем, что это IPv4 и не loopback адрес (не 127.X.X.X)
+                    return addr.to_string();
+            }
+        }
+		catch (...) {
+	        return "Exception";
+	    }
+	}
 	std::string get_public_ip(){
         asio::error_code ec;
 	    std::string ip = "Unknown";
@@ -130,14 +156,18 @@ public:
 	        
 	        socket.close();
 	        
-	    } catch (...) {
+	    }
+		catch (...) {
 	        return "Exception";
 	    }
 	    
 	    return ip;
 	}
 	
-	std::string encode_my_address(){
+	std::string get_local_code(){
+		return encode_address(get_local_ip(), listen_port_);
+	}
+	std::string get_public_code(){
 		return encode_address(get_public_ip(), listen_port_);
 	}
 	
@@ -223,31 +253,29 @@ public:
 
 
 
-    void start_accept() {
+    void start_accept(){
         auto socket = std::make_shared<tcp::socket>(io_context_);
-        
         
         acceptor_.async_accept(*socket,
             [this, socket](const asio::error_code& error) {
                 if (!error) {
-                    std::cout << "\nIncoming connection from: " 
+                    std::cout << "\nВходящее подключение от: "
                               << socket->remote_endpoint() << std::endl;
                     
-                    // Принимаем подключение
+                    //Принимаем подключение
                     handle_incoming_connection(socket);
                 }
                 
-                // Продолжаем слушать новые подключения
-                if (running_) {
+                //Продолжаем слушать новые подключения
+                if (running_)
                     start_accept();
-                }
             });
     }
     
     void handle_incoming_connection(std::shared_ptr<tcp::socket> socket) {
         // Если уже есть активное соединение, закрываем его
         if (connected_socket_ && connected_socket_->is_open()) {
-            std::cout << "Already connected. Closing old connection." << std::endl;
+            std::cout << "Уже подключён. Завершаем предыдущее соединение." << std::endl;
             connected_socket_->close();
         }
         
@@ -255,22 +283,15 @@ public:
         remote_ip_ = socket->remote_endpoint().address().to_string();
         remote_port_ = socket->remote_endpoint().port();
         
-        std::cout << "Connected to " << remote_ip_ << ":" << remote_port_ << std::endl;
+        std::cout << "Подключён к " << remote_ip_ << ":" << remote_port_ << std::endl;
         
         // Начинаем читать сообщения от этого пользователя
         start_read();
     }
     
-    void handle_connect_command(const std::string& command) {
-        std::string ip;
-        unsigned short port;
-        
-        // Парсим команду: /connect 192.168.1.100 12345
-        std::istringstream iss(command.substr(9));
-        if (!(iss >> ip >> port)) {
-            std::cout << "Usage: /connect <IP> <port>" << std::endl;
-            return;
-        }
+    void handle_connect(std::string command) {
+        std::string ip = command.substr(0, command.find(' '));
+        unsigned short port = std::stoi(command.substr(command.find(' '), command.length() - 1));
         
         try {
             // Если уже есть соединение, закрываем его
@@ -291,21 +312,75 @@ public:
                 remote_ip_ = ip;
                 remote_port_ = port;
                 
-                std::cout << "Successfully connected to " << ip << ":" << port << std::endl;
+                std::cout << "Успешно подключён к " << ip << ":" << port << std::endl;
                 
                 // Начинаем читать сообщения
                 start_read();
             } else {
-                std::cout << "Connection failed: " << ec.message() << std::endl;
+                std::cout << "Не удалось подключиться: " << ec.message() << std::endl;
                 connected_socket_.reset();
             }
             
         } catch (std::exception& e) {
-            std::cout << "Error: " << e.what() << std::endl;
+            std::cout << "Ошибка: " << e.what() << std::endl;
         }
     }
     
-    void start_read() {
+    /*
+	asio::streambuf read_buffer_;
+	
+	void start_reads() {
+    if (!connected_socket_ || !connected_socket_->is_open()) {
+        return;
+    }
+
+    
+    asio::async_read_until(*connected_socket_, read_buffer_, '\n',	//Читаем до символа новой строки
+        [this](const asio::error_code& error, size_t bytes_transferred) {
+            if (!error) {
+                //Извлекаем все полные сообщения из буфера
+                std::istream is(&read_buffer_);
+                std::string line;
+                
+                while (std::getline(is, line)) {
+                    if (!line.empty()) {
+                        //Убираем \r если есть
+                        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+                            line.pop_back();
+                        
+                        // ???????????? ?????????
+                        std::cout << "\n[" << remote_ip_ << "]: " << line << std::endl;
+                    
+						if (line[0] - '0' == MESSAGE){
+							std::cout << "Пакет сообщение!" << std::endl;
+						}
+						else if (line[0] - '0' == SERVICE){
+							std::cout << "Пакет сервиса!" << std::endl;
+						}
+						else if (line[0] - '0' == MOVE){
+							std::cout << "Пакет с ходом!" << std::endl;
+						}
+                    }
+                }
+                
+                //Продолжаем чтение
+                start_read();
+            }
+			else{
+            	// Соединение разорвано
+                std::cout << "\nПотеряно соединение с " << remote_ip_ << std::endl;
+                std::cout << "Вы: " << std::flush;
+                    
+                if (connected_socket_) {
+                	connected_socket_->close();
+                	connected_socket_.reset();
+            	}
+            }
+        });
+	}
+	*/
+	
+	void start_read() {
         if (!connected_socket_ || !connected_socket_->is_open()) {
             return;
         }
@@ -316,25 +391,41 @@ public:
             [this, buffer](const asio::error_code& error, size_t bytes_transferred) {
                 if (!error && bytes_transferred > 0) {
                     // Получили сообщение
-                    std::cout << "(Получил сообщение): " << std::endl;
+                    std::cout << "(Получено сообщение): " << std::endl;
                     std::string message(buffer->data(), bytes_transferred);
                     
+                    
+                    /*
                     // Убираем лишние символы новой строки
-                    if (!message.empty() && message.back() == '\n')
-                        message.pop_back();
-                    if (!message.empty() && message.back() == '\r')
-                        message.pop_back();
-                    
-                    // Выводим полученное сообщение
-                    std::cout << "\n[" << remote_ip_ << "]: " << message << std::endl;
-                    std::cout << "You: " << std::flush;
-                    
+                    while (!message.empty() && (message.back() == '\n' || message.back() == '\r')){
+                    	std::cout << "(Удаление символа из строки)" << std::endl;
+						message.pop_back();
+					}
+					*/
+					
+                    size_t pos;
+                    while ((pos = message.find('\n')) != std::string::npos){	//Обработка на случай, если несколько сообщений "склеились" в один пакет
+	                    std::string sub_message = message.substr(0, pos);	//Извлекаем одно сообщение
+	                    //Выводим полученное сообщение
+	                    std::cout << "\n[" << remote_ip_ << "]: " << sub_message << std::endl;
+	                    
+						if (sub_message[0] - '0' == MESSAGE){
+							std::cout << "Пакет сообщение!" << std::endl;
+						}
+						else if (sub_message[0] - '0' == SERVICE){
+							std::cout << "Пакет сервиса!" << std::endl;
+						}
+						else if (sub_message[0] - '0' == MOVE){
+							std::cout << "Пакет с ходом!" << std::endl;
+						}
+						//Удаление обработанного сообщения из буфера
+	                    message.erase(0, pos + 1);
+                    }
                     // Продолжаем чтение
                     start_read();
                 } else {
                     // Соединение разорвано
-                    std::cout << "\nConnection lost with " << remote_ip_ << std::endl;
-                    std::cout << "You: " << std::flush;
+                    std::cout << "\nПотеряно соединение с " << remote_ip_ << std::endl;
                     
                     if (connected_socket_) {
                         connected_socket_->close();
@@ -343,38 +434,45 @@ public:
                 }
             });
     }
-    
-    void send_message(const std::string& message) {
-        if (!connected_socket_ || !connected_socket_->is_open()) {
-            std::cout << "Not connected to anyone. Use /connect first." << std::endl;
+//public:
+	void send_message(std::string message){
+		_send_message(message, MESSAGE);
+    }
+//private:
+	void _send_message(std::string message, MessageType type = SERVICE){
+		if (!connected_socket_ || !connected_socket_->is_open()) {
+            std::cout << "Ни к кому не подключён.\n";
             return;
         }
-        
+        if (type == MESSAGE && message == "")
+        	return;
         try {
             // Добавляем символ новой строки для разделения сообщений
-            std::string formatted_message = message + "\n";
+            //asio::write(*connected_socket_, asio::buffer(std::to_string(type) + " " + std::to_string(nnn) + " " + message + "\n"));
+            asio::write(*connected_socket_, asio::buffer(std::to_string(type) + " " + message + "\n"));
             
-            asio::write(*connected_socket_, asio::buffer(formatted_message));
-            
-            // Эхо своего сообщения
+            //Эхо своего сообщения
             std::cout << "You: " << message << std::endl;
             
         } catch (std::exception& e) {
-            std::cout << "Failed to send message: " << e.what() << std::endl;
+            std::cout << "Ошибка отправки сообщения: " << e.what() << std::endl;
         }
     }
     
+//public:
     void print_status() {
-        std::cout << "\n=== Status ===" << std::endl;
-        std::cout << "Listening on port: " << listen_port_ << std::endl;
+        std::cout << "\n=== Статус ===" << std::endl;
+        std::cout << "Слушаю на порту: " << listen_port_ << std::endl;
         
         if (connected_socket_ && connected_socket_->is_open()) {
-            std::cout << "Connected to: " << remote_ip_ << ":" << remote_port_ << std::endl;
-            std::cout << "Status: ONLINE" << std::endl;
+            std::cout << "Подключён к: " << remote_ip_ << ":" << remote_port_ << std::endl;
+            std::cout << "Статус: ОНЛАЙН" << std::endl;
         } else {
-            std::cout << "Connected to: No one" << std::endl;
-            std::cout << "Status: OFFLINE" << std::endl;
+            std::cout << "Подключён к: Никто" << std::endl;
+            std::cout << "Статус: ОФЛАЙН" << std::endl;
         }
         std::cout << "==============" << std::endl;
     }
 };
+
+
