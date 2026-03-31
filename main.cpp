@@ -1,19 +1,9 @@
 #include <iostream>
-
+#include <conio.h>
 
 
 
 //#include <locale>
-// Метод мультиплеера ~1250 строка
-
-
-
-
-
-
-
-
-
 
 /*
 #ifdef  _WIN32
@@ -28,17 +18,18 @@
 
 
 //Из морского боя
-#include <cstdlib>		
+#include <cstdlib>
 
-#include "seaBattleField.h"	//Библиотека "Поле игры 'Морской бой'"
-#include "seaNetwork.cpp"	//Библиотека "Работа с сетью" для игры 'Морской бой'
+
 //#include "network.cpp"
-
+#include "seaBattleField.h"		//Библиотека "Поле игры 'Морской бой'"
+#include "seaBattleGame.cpp"	//Контейнер для поля игры
+#include "seaBattleBot.cpp"		//Бот для игры
+#include "seaNetwork.cpp"		//Библиотека "Работа с сетью" для игры 'Морской бой'
 
 #include <vector>	//Для сохранения и отката ходов
 #include <cstring>	//Для работы с файлами
 #include <fstream>	//Для работы с файлами
-#include <iomanip> //Для форматирования текста
 #include <windows.h> // для изменения цвета текста
 #include <time.h> // для использования генератора случайных чисел
 
@@ -154,596 +145,7 @@ int mainggg(){
 
 
 
-
-class SeaBattleGame : public SeaBattleField{ //Интерфейс и реализация игры
-	private:
-		char *FieldSymbol;	//символы отображения клеток во время игры
-	public:
-		SeaBattleGame(int cols_ = 10, int rows_ = 10) : SeaBattleField(cols_, rows_) {
-			FieldSymbol = 0;
-			FieldSymbol = new char[5];
-			if (!FieldSymbol)
-				exit(1);
-			FieldSymbol[0] = '-';	//Пустая клетка
-			FieldSymbol[1] = '*';	//Стреленая клетка
-			FieldSymbol[2] = 'X';	//Раненая клетка корабля
-			FieldSymbol[3] = '#';	//Клетка взорванного корабля
-			FieldSymbol[4] = 'S';	//Целая клетка корабля
-		}
-		~SeaBattleGame() {
-			if (FieldSymbol)
-				delete[] FieldSymbol;
-			FieldSymbol = 0;
-		}
-		SeaBattleGame(const SeaBattleGame& other){
-			FieldSymbol = 0;
-			FieldSymbol = new char[5];
-			if (!FieldSymbol)
-				exit(1);
-			FieldSymbol[0] = other.FieldSymbol[0];	//Пустая клетка
-			FieldSymbol[1] = other.FieldSymbol[1];	//Стреленая клетка
-			FieldSymbol[2] = other.FieldSymbol[2];	//Раненая клетка корабля
-			FieldSymbol[3] = other.FieldSymbol[3];	//Клетка взорванного корабля
-			FieldSymbol[4] = other.FieldSymbol[4];	//Целая клетка корабля
-		}
-		
-		void PrintColored(const string& text, int color) 
-		{
-		    cout << "\033[1;3" << color << "m" << text << "\033[0m";
-		}
-		
-		void DrawSymbol(int index){	//Отрисовка элемента index поля, в виде игрового символа
-			unsigned char value = GetValueOfCellByIndex(index);
-			string myString(1, FieldSymbol[0]);
-			if (value == GetValueOfValueMean(0))
-				PrintColored(myString, 5);
-				//cout << FieldSymbol[0];
-			else if (value == GetValueOfValueMean(1))
-				cout << FieldSymbol[1];
-			else if (value == GetValueOfValueMean(2))
-				cout << FieldSymbol[2];
-			else if (value == GetValueOfValueMean(3))
-				cout << FieldSymbol[3];
-			else if (value == GetValueOfValueMean(4))
-				cout << FieldSymbol[4];
-		}
-		void DrawFields(SeaBattleGame &enemy_field) 
-		{
-	        int y;
-	        
-	        PrintWordNTimes(" ", GetCols() - 1);
-	        cout << "Ваше поле ";
-	        PrintWordNTimes(" ", 2 * GetCols() + 3);
-	        cout << "Поле врага" << endl;
-	        
-	        draw_top_letters();
-	        cout << "          ";
-	        enemy_field.draw_top_letters();
-	        
-	        for(cout << endl, y = 0; y < GetRows(); y++, cout << " |\n") {
-	            draw_row(y, 1);
-	            cout << " |        ";
-	            enemy_field.draw_row(y, 0);
-	        }
-	        cout << endl;
-	    }
-		
-	    void draw_row(int y, int owner) //строки с учётом владения полем
-		{ 
-	        int x, value;
-	        for(cout << setfill(' ') << setw(2) << y << "|", x = 0; x < GetCols(); x++) {
-	            value = GetValueOfCell(x, y);
-	            if (value == GetValueOfValueMean(0)) 
-				{
-	                cout << " " << FieldSymbol[0];
-	            } 
-				else if (value == GetValueOfValueMean(4)) 
-				{
-	                if (owner)
-	                    cout << " " << FieldSymbol[4];
-	                else
-	                    cout << " " << FieldSymbol[0];
-	            } 
-				else 
-				{
-	                for (int i = 0; i < 5; i++) {
-	                    if (value == GetValueOfValueMean(i)) {
-	                        cout << " " << FieldSymbol[i];
-	                        break;
-	                    }
-	                }
-	            }
-	        }
-	    }
-		
-		void DrawField(){	//Отрисовать 1 поле игровыми символами
-			draw_top_letters();
-			cout << endl;
-			for(int y = 0; y < GetRows(); y++, cout << " |\n")
-	            draw_row(y, 1);
-			cout << endl;
-		}
-		
-		void draw_top_letters()
-		{						//буквенная полоса горизонтальных координат
-			short i;
-			for(cout << "   ", i = 0; i < this->GetCols(); i++)
-				//printf(" %c", i + 'A');
-				cout << " " << (char)(i + 'A');
-		}
-		
-		void PrintWordNTimes(string word, int n){ 				//вывести строку n раз
-			for(n; n > 0; n--)
-				cout << word;
-		}
-		
-		void PrintFieldValues(){	//Отрисовать 1 поле хранимыми значениями
-			for(int index = 0; index < GetCols() * GetRows(); index++){
-				cout << GetValueOfCellByIndex(index);
-				if (((index + 1) % GetCols() == 0) && (index > 0))
-					cout << endl;
-				else
-					cout << " ";
-			}
-			cout << endl;
-		}
-		void PrintFieldIndexs(){	//Отрисовать индексы 1 поля
-			for(int index = 0; index < GetCols() * GetRows(); index++){
-				cout << index;
-				if (((index + 1) % GetCols() == 0) && (index > 0))
-					cout << endl;
-				else
-					cout << " ";
-			}
-		}
-		void PrintFieldValueMean(){	//Отобразить значения, которыми обозначаются EMPTY, SHOT, ..., SHIP
-			cout << "Обозначения:\nEMPTY - " << GetValueOfValueMean(0) << "\nSHOT - " << GetValueOfValueMean(1)
-			<< "\nSTRIKE - " << GetValueOfValueMean(2) << "\nKILL - " << GetValueOfValueMean(3)
-			<< "\nSHIP - " << GetValueOfValueMean(4) << "\n";
-		}
-		
-		void SetShipsRandomly() 
-		{
-	        ClearField();
-	        ResetShipsRemain();
-	        srand(clock()); // инициализация генератора
-	        
-	        int max_len = GetMaxShipLen();
-	        for (int len = max_len; len >= 1; len--) 
-			{
-	            int count = GetShipsRemainCountOfNLen(len);
-	            for (int i = 0; i < count; i++) 
-				{
-	                if (!PlaceRandomShip(len)) {
-	                    i--;
-	                }
-	            }
-	        }
-    	}
-    
-	    bool PlaceRandomShip(int len) 
-		{
-		    int attempts = 0;
-		    while (attempts < 1000) {
-		        int x = rand() % GetCols();
-		        int y = rand() % GetRows();
-		        
-		        if (len == 1) {
-		            if (SetShip(1, 1, x, y) == 0) {
-		                return true;
-		            }
-		        } else {
-		            // Пробуем все возможные направления
-		            for (int side = 1; side <= 4; side++) {
-		                if (IsSideAvailable(x, y, len, side - 1) != 0) {
-		                    if (SetShip(len, side, x, y) == 0) {
-		                        return true;
-		                    }
-		                }
-		            }
-		        }
-		        attempts++;
-		    }
-		    return false;
-		}
-};
 	
-
-
-class SeaBattleBot : public SeaBattleGame{ //Класс со всей логикой бота для игры
-	private:
-		typedef enum BotState{	//Состояние бота
-			Searching,	//В поиске корабля
-			Destruction	//Уничтожение корабля
-		}BotState;
-		typedef enum ShipRotation{	//Ориентация найденного корабля
-			Unknown,	//Неизвестный
-			Horizontal,	//Горизонтальный
-			Vertical	//Dертикальный
-		}ShipRotation;
-		int ef_cols, ef_rows;	//Высота и ширина поля, в которое будет происходить выстрел
-		BotState State;	//Текущее состояние бота
-		int LastShotIndex;	//Индекс последнего его хода
-		int LastShotResult;	//Результат последнего его хода
-		int solution; //Решение, куда он будет стрелять
-		ShipRotation Rotation;	//Ориентация атакуемого корабля
-		int FirstHitIndex;	//Индекс клетки с первым попаданием по кораблю
-		bool ShootingRight; //Бот для уничтожения движется вправо (вниз), иначе влево (вверх)
-		int *EmptyCells;
-		int EmptyCellsSize;
-				
-	public:
-		SeaBattleBot(int enemy_field_cols = 10, int enemy_field_rows = 10) : SeaBattleGame(enemy_field_cols, enemy_field_rows), ef_cols(GetCols()), ef_rows(GetRows()){
-			State = Searching;
-			LastShotIndex = -1;
-			LastShotResult = -1;
-			solution = -1;
-			Rotation = Unknown;
-			FirstHitIndex = -1;
-			ShootingRight = true;
-			EmptyCellsSize = -1;
-			EmptyCells = 0;
-		}
-		~SeaBattleBot(){
-			if (EmptyCells != 0)
-				delete[] EmptyCells;
-		}
-	//Изменение данных бота
-	private:
-		void ResetAboutShipInfo(){	//Сбросить всю информацию по найденному кораблю
-			Rotation = Unknown;
-			ShootingRight = true;
-			FirstHitIndex = -1;
-		}
-	public:
-		void SetBotFieldSize(int new_cols, int new_rows){	//Установить размер поля, в котором бот будет стрелять
-			if (new_cols > 0 && new_cols < 2000000000)
-				ef_cols = new_cols;
-			else
-				ef_cols = GetCols();
-			if (new_rows > 0 && new_rows < 2000000000)
-				ef_rows = new_rows;
-			else
-				ef_rows = GetRows();
-			EmptyCellsSize = -1;
-		}
-		void ResetBot(int cols_ = -1, int rows_ = -1){	//Сбросить всю игровую информацию бота
-			SetBotFieldSize(cols_, rows_);
-			LastShotIndex = -1;
-			LastShotResult = -1;
-			solution = -1;
-			State = Searching;
-			ResetAboutShipInfo();
-			FirstHitIndex = -1;
-			EmptyCellsSize = -1;
-		}
-	
-	//Работа с клетками/значениями клеток поля
-	private:
-		bool IsInField(int index){	//В пределах ли поля для стрельбы координата; true - да; false - нет
-			return !(index < 0 || index >= (ef_cols * ef_rows));
-		}
-		bool IsInFieldHorizontal(int x, int y){	//В пределах ли поля для стрельбы координата; true - да; false - нет
-			return !((x < 0 || x >= ef_cols) || (y < 0 || y >= ef_rows));
-		}
-		bool IsMayShotTo(const SeaBattleField &enemy_field, int index){	//Имеет ли смысл выстрела по данному индексу; true - да; false - нет
-			return (IsInField(index) && (CheckCell(enemy_field, index) == 0));
-		}
-		bool IsMayShotToHorizontal(const SeaBattleField &enemy_field, int x, int y){	//Имеет ли смысл выстрела по данной координате; true - да; false - нет
-			return CheckCellHorizontal(enemy_field, x, y) == 0;
-		}
-		int CheckCell(const SeaBattleField &enemy_field, int index){	//-1 - за пределами поля; 0 - пустота (или, возможно, корабль); 1 - стреленая клетка; 2 - раненый корабль; 3 - взорванный корабль
-			int value = enemy_field.LookAtCellByIndex(index);
-			if (enemy_field.GetValueOfValueMean(0) == value)
-				return 0;
-			else if (enemy_field.GetValueOfValueMean(1) == value)
-				return 1;
-			else if (enemy_field.GetValueOfValueMean(2) == value)
-				return 2;
-			else if (enemy_field.GetValueOfValueMean(3) == value)
-				return 3;
-			else
-				return -1;
-		}
-		int CheckCellHorizontal(const SeaBattleField &enemy_field, int x, int y){	//-1 - за пределами поля; 0 - пустота (или, возможно, корабль); 1 - стреленая клетка; 2 - раненый корабль; 3 - взорванный корабль
-			if (!IsInFieldHorizontal(x, y))
-				return -1;
-			int index = y * ef_cols + x;
-			int value = enemy_field.LookAtCellByIndex(index);
-			if (enemy_field.GetValueOfValueMean(0) == value)
-				return 0;
-			else if (enemy_field.GetValueOfValueMean(1) == value)
-				return 1;
-			else if (enemy_field.GetValueOfValueMean(2) == value)
-				return 2;
-			else if (enemy_field.GetValueOfValueMean(3) == value)
-				return 3;
-			else
-				return -1;
-		}
-	
-	//Определение координаты для уничтожения корабля
-	private:
-		void InitializeEmptyCells(const SeaBattleField &enemy_field){
-			int sum = 0;
-			if (EmptyCells != 0)
-				delete[] EmptyCells;
-			EmptyCells = new int[ef_cols * ef_rows];
-			for(int i = 0; i < ef_cols * ef_rows; i++){
-				if (CheckCell(enemy_field, i) == 0){
-					EmptyCells[sum] = i;
-					sum++;
-				}
-			}
-			EmptyCellsSize = sum;
-		}
-		void DeleteEmptyCellsByIndex(int index_of_empty_cell){
-			int i = 0;
-			for(; i < index_of_empty_cell + 1; i++){
-				if (EmptyCells[i] == index_of_empty_cell)
-					break;
-			}
-			for(; i < EmptyCellsSize - 1; i++)
-				EmptyCells[i] = EmptyCells[i + 1];
-			EmptyCellsSize--;
-		}
-		void ReverseShootingSide(){	//Развернуть уничтожение корабля на противоположную сторону
-			if (ShootingRight)
-				solution = (Rotation == Vertical ? FirstHitIndex - ef_cols : FirstHitIndex - 1);	//Выстрелить левее (выше) первой найденной клетки
-			else
-				solution = (Rotation == Vertical ? FirstHitIndex + ef_cols : FirstHitIndex + 1);	//Выстрелить правее (ниже) первой найденной клетки
-			ShootingRight = !ShootingRight;
-		}
-		int FindOutShipRotation(const SeaBattleField &enemy_field){	//Узнать ориентацию найденного корабля; 1 - узнал ориентацию; 2 в процессе определения
-			int  Up = FirstHitIndex - ef_cols, Down = FirstHitIndex + ef_cols, Right = (FirstHitIndex % ef_cols) + 1, Left = (FirstHitIndex % ef_cols) - 1, y = FirstHitIndex / ef_cols;	//Следующие ближайшие клетки в каждом направлении
-			if (CheckCell(enemy_field, Up) == 2 || CheckCell(enemy_field, Down) == 2){	//Если выше или ниже был ранен корабль
-				Rotation = Vertical;
-				//cout << "Выше или ниже есть раненый корабль\n";
-				return 1;
-			}
-			else
-				if (!(IsMayShotTo(enemy_field, Up) || IsMayShotTo(enemy_field, Down))){	//Может ли выстрелить выше/ниже
-					Rotation = Horizontal;
-					//cout << "Не могу выстрелить выше/ниже\nЗначения верха и низа: ";
-					//cout << CheckCell(enemy_field, Up) << CheckCell(enemy_field, Down) << endl;
-					return 1;
-				}
-		
-			if (CheckCellHorizontal(enemy_field, Left, y) == 2 || CheckCellHorizontal(enemy_field, Right, y) == 2){	//Если левее или правее был ранен корабль
-				Rotation = Horizontal;
-				//cout << "Левее или правее есть раненый корабль\n";
-				return 1;	
-			}	
-			else
-				if (!(IsMayShotToHorizontal(enemy_field, Left, y) || IsMayShotToHorizontal(enemy_field, Right, y))){	//Может ли выстрелить левее/правее
-					Rotation = Vertical;
-					//cout << "Не могу выстрелить левее/правее\n";
-					return 1;
-				}
-			
-			if (IsMayShotTo(enemy_field, Down)){
-				ShootingRight = true;
-				solution = Down;
-			}
-			else if (IsMayShotTo(enemy_field, Up)){
-				ShootingRight = false;
-				solution = Up;
-			}
-			else if (IsMayShotToHorizontal(enemy_field, Right, y)){
-				ShootingRight = true;
-				solution = y * ef_cols + Right;
-			}
-			else if (IsMayShotToHorizontal(enemy_field, Left, y)){
-				solution = y * ef_cols + Left;
-				ShootingRight = false;
-			}
-			
-			if (Rotation == Unknown)
-				return 2;
-			else
-				return 3;
-		}
-		void RecordBotMoveData(int *x = 0, int *y = 0){	//Записать в переданные аргументы значения от solution
-			if (x)
-				*x = solution % ef_cols;
-			if (y)
-				*y = solution / ef_cols;
-			LastShotIndex = solution;
-		}
-	public:
-		void ShotByBot(const SeaBattleField &enemy_field, int *x, int *y){ //Вычисления для хода, куда бот будет стрелять; В x и y будут записаны координаты для выстрела;
-			int temp = 0, temp2;
-			if (EmptyCellsSize = -1)
-				InitializeEmptyCells(enemy_field);
-			LastShotResult = enemy_field.CheckLastMove();	//0 - ходы отсутствуют; 1 - был выстрел по SHOT, STRIKE, KILL; 2 - было попадание в SHIP; 3 - был подрыв корабля; 4 - был выстрел по EMPTY; 5 - была установка корабля;
-			switch(LastShotResult){	//Результат его последнего хода
-				case 2:	//Попал в клетку корабля
-					if (State == Searching){	//Только-только обнаружил корабль
-						State = Destruction;
-						FirstHitIndex = LastShotIndex;
-					}
-
-					break;
-				case 3:	//Взорвал корабль
-					if (State == Destruction){	//Взорвал корабль длиной в >1 клетку
-						ResetAboutShipInfo();
-						State = Searching;
-						FirstHitIndex = -1;
-					}
-					InitializeEmptyCells(enemy_field);
-					break;
-				/*
-				case 4:	//Попал по пустой клетке
-					
-					break;
-				case 5:	//Была установка кораблей, это первый ход
-					solution = 21;
-					RecordBotMoveData(x, y);
-					return;
-				*/
-			}
-			
-			switch(State){
-				case Searching:	//Поиск какого-либо корабля
-					
-					srand(clock());
-					solution = EmptyCells[rand() % EmptyCellsSize];
-					
-					
-					
-					/*
-					temp = ((unsigned int)rand()) % ef_cols;
-					//srand(clock() + 1);
-					srand(clock() * 3 + 5);
-					//solution = (((unsigned int)temp) + rand() % (ef_cols * ef_rows));
-					solution = (temp + ef_cols * (((unsigned int)rand()) % ef_rows));
-					for(int i = 0; i <= ef_cols * ef_rows; solution++, i++){
-						if (solution >= ef_cols * ef_rows)
-							solution = 0;
-						if (CheckCell(enemy_field, solution) == 0)	//Чтобы выстрелить в пустую клетку
-							break;
-					}
-					*/
-					break;
-				case Destruction:	//Уничтожение найденного корабля
-					if (Rotation == Unknown){	//Попытка узнать направление корабля
-						temp = FindOutShipRotation(enemy_field);	//Возвращает 1, 2, 3
-						if (temp == 2 || temp == 3)	//значение в solution было записано в FIndOutShipRotation
-							break;
-					}
-					
-					//Определение следующей клетки для выстрела
-					if (Rotation == Horizontal){	
-						temp2 = (LastShotResult == 2 ? (LastShotIndex / ef_cols) : (FirstHitIndex / ef_cols));
-						solution = ((LastShotResult == 2 ? (LastShotIndex % ef_cols) : (FirstHitIndex % ef_cols)) + (ShootingRight ? 1 : -1));
-					}
-					else	//Rotation == Vertical
-						solution = ((LastShotResult == 2 ? LastShotIndex : FirstHitIndex) + (ShootingRight ? ef_cols : -ef_cols));
-					
-					if ((LastShotResult == 4 && temp == 0) || (Rotation == Horizontal ? (!IsMayShotToHorizontal(enemy_field, solution, temp2)) : (!IsMayShotTo(enemy_field, solution))))	//Попал в пустую клетку или следующая клетка вне поля поля/не имеет смысла в неё стрелять
-						ReverseShootingSide();
-					else
-						solution = (Rotation == Horizontal ? temp2 * ef_cols + solution : solution);
-					break;
-			}
-			DeleteEmptyCellsByIndex(solution);
-			RecordBotMoveData(x, y);
-		}
-	
-	
-	//Работа с файлами
-	private:
-		bool HaveFormatInFileName(string file_name, string file_format = ".txt"){
-			if (file_name.length() < 4)
-				return false;
-			return file_name.compare(file_name.length() - 4, 4, file_format) == 0;
-		}
-	//Загрузка из файла
-	public:
-		bool BotLoadFromFile(string file_name){	//Загрузить данные бота из файла; 0 - успешно; 1 - некорректное название/ошибка открытия файла; 2 - ошибка чтения
-			if (file_name.length() < 3)
-				return 1;
-			if (!HaveFormatInName(file_name, ".txt"))
-				file_name += ".txt";
-			
-			ifstream file(file_name.c_str());	//Открываем файл для чтения
-			if (!file.is_open())
-				return 1;
-			
-			ResetBot();
-			int temp, shr;
-			if (
-				!BotReadFindString(file, "SeaBattleBot") ||
-				!BotReadElement(file, "efc", &ef_cols) ||
-				!BotReadElement(file, "efr", &ef_rows) ||
-				!BotReadElement(file, "sta", &temp)
-				)	//Ошибка чтения
-					return 2;
-			
-			State = (BotState)temp;
-			if (State == Destruction)	//Если бот в состоянии уничтожения корабля
-				if (
-					!BotReadElement(file, "lsi", &LastShotIndex) ||
-					!BotReadElement(file, "lsr", &LastShotResult) ||
-					!BotReadElement(file, "rot", &temp) ||
-					!BotReadElement(file, "fhi", &FirstHitIndex) ||
-					!BotReadElement(file, "shr", &shr)
-					)	//Ошибка чтения
-						return 2;
-			
-			Rotation = (ShipRotation)temp;
-			ShootingRight = (bool)shr;
-			EmptyCellsSize = -1;
-			return 0;
-		}
-	private:
-		bool BotReadFindString(ifstream &flow_name, string your_string){	//Найти строку в файле; true - удалось; false - не удалось
-			string str;
-			while (getline(flow_name, str)){
-				if (flow_name.fail() && !flow_name.eof())
-	                return false;
-	            if (str.find(your_string) != string::npos)
-	                return true;
-            }
-        	return false;
-		}
-		bool BotReadIsCharEqualsReaded(ifstream &flow_name, char your_char){	//Равен ли считанный символ переданному; true - равны; false - не равны
-			return (flow_name.get() == your_char);
-		}
-		bool BotReadIsStringEquals(ifstream &flow_name, string your_string){	//Совпадает ли ожидаемое имя элемента со считанным; true - совпадает; false - не совпадает
-			for(int i = 0; i < your_string.length(); i++)
-				if (your_string[i] != flow_name.get())
-					return false;
-			return true;
-		}
-		bool BotReadElement(ifstream &flow_name, string element_name, int *element){	//Считать из файла элемент в кавычках; true - успешно; false - ошибка чтения
-			if (!BotReadIsStringEquals(flow_name, element_name + "=\"") || !BotReadNumber(flow_name, element) || !BotReadIsCharEqualsReaded(flow_name, '"') || !BotReadIsCharEqualsReaded(flow_name, '\n'))
-				return false;
-			return true;
-		}
-		bool BotReadNumber(ifstream &flow_name, int *element){	//Считать из файла элемент в кавычках; true - успешно; false - ошибка чтения
-			return (flow_name >> *element).good();
-		}
-	//Сохранение в файл
-	public:
-		bool BotSaveToFile(string file_name){	//Сохранить данные бота в файл
-			if (file_name.length() < 3)
-				return 1;
-			if (!HaveFormatInName(file_name, ".txt"))
-				file_name += ".txt";
-				
-			ofstream file(file_name.c_str(), ios::app);	//Открываем файл для записи
-			if (!file.is_open())
-				return 1;
-			if (
-				!BotRecordString(file, "SeaBattleBot\n") ||
-				!BotRecordElement(file, "efc", ef_cols) ||
-				!BotRecordElement(file, "efr", ef_rows) ||
-				!BotRecordElement(file, "sta", (int)State)
-				){	//Ошибка записи
-					return 2;
-				}
-			if (State == Destruction){	//Если бот в состоянии уничтожения корабля
-				if (
-					!BotRecordElement(file, "lsi", LastShotIndex) ||
-					!BotRecordElement(file, "lsr", LastShotResult) ||
-					!BotRecordElement(file, "rot", (int)Rotation) ||
-					!BotRecordElement(file, "fhi", FirstHitIndex) ||
-					!BotRecordElement(file, "shr", ShootingRight)
-					){	//Ошибка записи
-						return 2;
-					}
-			}
-			return 0;
-		}
-	private:
-		bool BotRecordString(ofstream &flow_name, string your_string){	//Записать в файл строку; true - успешно; false - ошибка записи
-			return (flow_name << your_string).good();
-		}
-		bool BotRecordElement(ofstream &flow_name, string element_name, int number){	//Записать в файл элемент в кавычки; true - успешно; false - ошибка записи
-			return (flow_name << element_name << "=\"" << number << "\"\n").good();
-		}
-};
 
 
 
@@ -767,6 +169,19 @@ private:
     int player2_color;
     bool IsModeVsComputer;
     bool player_turn;
+    
+    //Для сетевой игры
+    typedef struct Player{
+    	unsigned long long id = 0;
+		std::string name = "name";
+		SeaBattleGame field;
+    	unsigned short color = 0;
+    	std::string country = "country";
+	}Player;
+	bool host;
+	Player MP_player1;
+    Player MP_player2;
+    P2PMessenger SeaNet;
     
     enum MENU {
         NEW_GAME = 0,
@@ -1303,19 +718,246 @@ private:
         return true;
     }
     
-    bool Multiplayer(){
-    	cout << "Создание сетевого\n";
-	    P2PMessenger SeaNet;
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    void MP_GameConfirmation(){
+    	SeaNet.set_certain_message("ГОТОВНОСТЬ_УСПЕШНО");	//Что ожидать
+    	
+    	getch();
+    	
+    	SeaNet.send_message("ГОТОВНОСТЬ_УСПЕШНО");	//Отправить ожидаемое сообщение
+    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+	}
+	
+	void MP_CoinFlip(){
+		if (host){	//Подброс монетки
+			SeaNet.set_certain_message("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Что ожидать
+    	
+	    	srand(clock());
+	    	bool coin_result = (rand() % 2);
+	    	
+	    	SeaNet.send_message("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Отправить ожидаемое сообщение
+	    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+		}
+		else{	//Ожидание результата подброса от хоста
+			SeaNet.set_certain_message("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Что ожидать
+			
+	    	getch();
+	    	
+	    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+	    	SeaNet.send_message("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Отправить ожидаемое сообщение
+		}
+	}
+    
+    void MP_PrepareForGame(){
+    	system("cls");
+    	SeaNet.set_certain_message("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Что ожидать
+    	
+    	MP_player1.field.Reset();	//Сброс всех настроек поля
+    	
+    	//Установка кораблей
+    	if (Confirm("Расставить корабли вручную?"))
+			SetShipsManually(MP_player1.field);	//Ручная установка
+		else
+			SetShipsRandomly(MP_player1.field);	//Случайная расстановка
+    	
+    	//MP_player1.field.DrawField();
+    	
+    	SeaNet.send_message("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Отправить ожидаемое сообщение
+    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+    	
+    	//MP_player2.field.RegenerateFieldByMoves();	//private
+    	
+    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+	}
+    
+    void waiting_points(bool *stop){
+    	std::cout << "\033[?25l";	//Скрытие курсора
+		int i;
+		while(!(*stop)){
+        	for(i = 0; i < 3 && !(*stop); i++){
+        		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        		std::cout << ".";
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			
+			std::cout << "\033[" << i << "D";
+			for(int n = i; n > 0; n--)
+				std::cout << " ";
+			std::cout << "\033[" << i << "D";
+		}
+		std::cout << "\033[?25h";	//Отображение курсора
+	}
+	
+	
+    
+    void MP_CreateLobby(std::string lobby_name = ""){
+    	host = true;
+    	bool flag = false;
+    	std::thread thr_;
+		std::cout << "Определение публичного IP";
+		thr_ = std::thread([this, &flag]() { waiting_points(&flag); });
+		flag = true;
+		thr_.join();
+		
+		std::cout << "\rПубличный код друга: " << SeaNet.get_public_code() << " и IP: " << SeaNet.get_public_ip() << "\n";
+        std::cout << "Локальный код друга: " << SeaNet.get_local_code() << " и IP: " << SeaNet.get_local_ip() << "\n";
+        
+        
+        flag = false;
+        std::cout << "Ожидание подключения второго игрока";
+        thr_ = std::thread([this, &flag]() { waiting_points(&flag); });
+		SeaNet.wait_for_connect();
+		flag = true;
+		thr_.join();
+		
+		std::cout << "\033[?25h\033[2K\r" << MP_player2.name << " подключился.\n";
+	}
+	
+	std::string MP_InputCode(std::string message_befor_input = ""){
+		std::string input;
+		char input_symbol;
+		bool flag = true;
+		
+		std::cout << message_befor_input;
+		
+		while (flag) {
+	        input_symbol = getch();
+
+	        if (input_symbol == 8){			//Кнопка Backspace (Стереть)
+				if (input.length() > 0){
+					std::cout << "\033[1D \033[1D";	//Убрать 1 символ из вывода и итоговой строки
+					input.pop_back();
+				}
+			}
+			else if (input_symbol == 13 && input.length() >= 7)	//Перевод строки (Ввод/Enter). 7 - минимальная длина кода
+				break;
+			else if (input.length() >= 9)	//9 - максимальная длина кода
+				continue;
+			else if (('0' <= input_symbol && input_symbol <= '9') || ('a' <= input_symbol && input_symbol <= 'z') || ('A' <= input_symbol && input_symbol <= 'Z')){	//Ввод символов из кодировки
+				input += input_symbol;
+				std::cout << input_symbol;
+			}
+			std::cout << "\033[s\033[1B" << input.length() << "\033[u";
+		}
+		return input;
+	}
+	
+	void MP_ConnectLobby(unsigned long long lobby_id = 0, std::string player_code = ""){
+		host = false;
+		if (lobby_id != 0){
+			
+		}
+		else if (player_code != ""){
+			SeaNet.decode_and_use_code(player_code);
+			SeaNet.handle_connect(SeaNet.remote_ip_ + " " + std::to_string(SeaNet.remote_port_));
+			SeaNet.wait_for_connect();
+		}
+	}
+	
+	void MP_Statistics(unsigned long long player_id = 0){
+		
+	}
+    
+    void Multiplayer(){
+    	//SeaNet.start();
+    	
+    	
+    	//cout << "Создание сетевого\n";
+	    //P2PMessenger SeaNet;
 	    //SeaNet.run();
     	//SeaBattleGameNetwork SeaNet;
     	//std::cout << "Мой публичный IP: " << SeaNet.get_public_ip() << std::endl;
 		//std::cout << "Мой код друга: " << SeaNet.get_my_code() << std::endl;
 		
-    	cout << "Создание сетевого закончено\n";
-    	int choice = -1;
-    	std::string message;
+    	//cout << "Создание сетевого закончено\n";
+    	
+    	char display, input_symbol;
+	    bool flag;
+	    bool ChoseGame = false;
+	    
+    	while(true){
+    		display = ' ', input_symbol = ' ';
+    		system("cls");
+    		
+    		flag = true;
+	    	cout	<< "Сетевая игра\n"
+	        		<< "\t1. Создать игру\n"
+	            	<< "\t2. Присоединиться к игре\n"
+	            	<< "\t3. Статистика\n"
+	            	<< "\t0. Вернуться в главное меню\n";
+	        
+	    	while (flag) {
+	            input_symbol = getch();
+	            
+	            if (input_symbol == 8){			//Кнопка Backspace
+	        		display = ' ';
+				    std::cout << "\033[2K\r";	//Очистить строку и вернуться в начало строки
+				}
+	            else if (input_symbol == 27){	//Кнопка Escape == Пункту меню '0'
+	        		SeaNet.stop();
+				    system("cls");
+				    return;
+				}
+	            else if ('0' <= input_symbol && input_symbol <= '3'){	//Пункты меню
+		        	display = input_symbol;
+		        	std::cout << "\033[2K\r" << display;
+				}
+				else if (input_symbol == 13)	//Перевод строки
+					switch (display) {
+			        	case '1':
+			        		system("cls");
+			        		SeaNet.start();
+			        		MP_CreateLobby();
+			        		//SeaNet.stop();
+			        		ChoseGame = true;
+			        		flag = false;
+			        		break;
+			            case '2':
+			            	system("cls");
+			            	SeaNet.start();
+			            	MP_ConnectLobby(0, MP_InputCode("Введите код друга: "));
+			            	//SeaNet.stop();
+			            	ChoseGame = true;
+			            	flag = false;
+			            	break;
+			            case '3':
+			            	system("cls");
+			            	MP_Statistics();
+			            	flag = false;
+			            	break;
+			            case '0':
+			            	system("cls");
+			             	SeaNet.stop();
+							return;
+			        }
+			}
+			if (ChoseGame){
+				std::cout << "Ваш соперник: " << MP_player2.name << ".\nВы готовы?";
+				MP_GameConfirmation();
+				MP_PrepareForGame();
+				
+				ChoseGame = false;
+			}
+		}
+		
+		
+		std::string message;
     	std::string connect_ip = "127.0.0.1";
     	unsigned int rem_p = SeaNet.remote_port_;
+		int choice = -1;
 		while (true) {
             cout << "Вы находитесь в меню сетевой игры. Введите номер того действия, которое хотите выполнить.\n";
             
@@ -1326,10 +968,14 @@ private:
 				<< "2. К какому порту подключаться? (Текущий: " << rem_p << ")\n"
 				<< "\tОжидает подключения на: (" << SeaNet.listen_port_ << ")\n"
 				<< "3. Применить код друга\n" 
-				<< "4. К какому IP подключаться (Текущий: " << connect_ip << ")\n";
+				<< "4. К какому IP подключаться (Текущий: " << connect_ip << ")\n"
+				<< "5. SeaNet.start()\n"
+				<< "6. MP_CreateLobby();\n"
+				<< "7. TEST MP_ConnectLobby();\n"
+				<< "8. SeaNet.stop();\n";
             
             
-            if (!(cin >> choice) || choice < 0 || choice > 5) {
+            if (!(cin >> choice) || choice < 0 || choice > 8) {
                 InputErrorMessage();
                 continue;
             }
@@ -1376,6 +1022,25 @@ private:
 		                break;
 		            }
                 	break;
+                case 5:
+                	SeaNet.start();
+                	std::cout << "Теперь может принять подключение.\n";
+					break;
+				case 6:
+					MP_CreateLobby();
+					break;
+				case 7:
+					cout << "Введите код друга: "; 
+                	if (!(cin >> message)){
+		                InputErrorMessage();
+		                break;
+		            }
+		            
+					MP_ConnectLobby(0, message);
+					break;
+				case 8:
+					SeaNet.stop();
+					break;
             }
         }
 	}

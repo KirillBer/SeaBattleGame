@@ -1,3 +1,6 @@
+#ifndef SEABATTLEFIELD_BM_H
+#define SEABATTLEFIELD_BM_H
+
 #include <vector>	//Для сохранения и отката ходов
 #include <cstring>	//Для работы с файлами
 #include <fstream>	//Для работы с файлами
@@ -119,3 +122,5 @@ class SeaBattleField{	//Механика и логика поля и кораблей
 		const int XYChangesBySide(int x_is_0_y_is_1, int side) const;	//значения изменения x, y в зависимости от стороны
 		const int IsOneOfFieldValueMean(unsigned char number) const;	//0 - является каким-либо значением из field_value_mean; 1 - не является
 };
+
+#endif
