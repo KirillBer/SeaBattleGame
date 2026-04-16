@@ -56,14 +56,46 @@
 	        }
 	        return *this;	//Возвращаем текущий объект
 	    }
+	    bool SeaBattleField::operator==(const SeaBattleField& other) const{
+			//Поле
+			if (cols != other.cols ||
+				rows != other.rows)
+				return false;
+			for(int i = (cols * rows) - 1; i >= 0; i--)	//В теории можно убрать из-за проверки ходов, но
+				if (field[i] != other.field[i])			// если где-то что-то пошло не так, то поля могут
+					return false;						// отличаться
+			
+			//Ходы
+			if (moves != other.moves)
+				return false;
+			
+			//Корабли
+			for(int i = 0; i <= ships[0]; i++)
+				if (ships[i] != other.ships[i] || ships_remain[i] != other.ships_remain[i])
+					return false;
+			
+			return true;
+		}
+		bool SeaBattleField::operator!=(const SeaBattleField& other) const{
+			return !(*this == other);
+		}
 		
 		
 	//Получение хранящихся значений
+	//public
 		const int SeaBattleField::GetRows() const{	//Возвращает значение rows
 			return rows;
 		}
 		const int SeaBattleField::GetCols() const{	//Возвращает значение cols
 			return cols;
+		}
+		const int SeaBattleField::GetMovesSize() const{	//Возвращает количество ходов
+			return moves.size();
+		}
+		const int SeaBattleField::GetMoveSize(int move_index) const{	//Возвращает количество ходов в ходе с индексом move_index, иначе -1
+			if (move_index < 0 || move_index >= moves.size())
+				return -1;
+			return (moves[move_index]).size();
 		}
 		const int SeaBattleField::GetValueOfValueMean(int type_position) const{	//Если type_position[0, 4] - вернётся текущее значение типа, иначе вернётся 1111 (невозможное значение)
 			if (type_position < 0 || type_position > 4)
@@ -110,6 +142,7 @@
 				return field_value_mean[0];
 			return field[index];
 		}
+	//protected
 		int SeaBattleField::GetValueOfCellByIndex(int index){	//Возвращает хранящееся значение в клетке, иначе -1
 			if (index < 0 || index >= rows * cols)
 				return -1;
@@ -123,48 +156,49 @@
 		
 		
 	//Сбросы значений до стандартных
+	//public
 		void SeaBattleField::ClearField(){	//Каждая клетка принимает значение EMPTY этого поля
 			for(int i = cols * rows - 1; i >= 0; i--)
 				field[i] = field_value_mean[0];
 		}
+		void SeaBattleField::ResetField(){	//Сбросить размер поля до размера 10 на 10, удалив ходы и значения в клетках
+			ChangeFieldSize(10, 10);
+			moves.clear();
+		}
 		void SeaBattleField::ResetFieldValueMean(){	//Значения типов клеток поля становятся стандартными (EMPTY - 0, SHOT - 1, ..., SHIP - 4)
-			for(int i = 0; i < 5; i++)
-				field_value_mean[i] = i;
+			//for(int i = 0; i < 5; i++)
+			//	field_value_mean[i] = i;
+			ChangeFieldValueMean(0, 1, 2, 3, 4);
 		}
 		void SeaBattleField::ResetShips(){	//Количество кораблей становится равно 4 1-палубных, ..., 1 4-палубный
-			unsigned char *t = 0;
-			t = new unsigned char[5];
-			if (!t)
-				MemoryAllocationError(1);
-			else
-			{
-				if (ships)
-					delete[] ships;
-				ships = t;
-				ships[0] = 4;	//Макс. длина
-				ships[1] = 4;
-				ships[2] = 3;
-				ships[3] = 2;
-				ships[4] = 1;
-			}
+			ChangeMaxShipLen(4);
+			
+			ChangeShipLenCount(4, 1);	//1 корабль длины 4
+			ChangeShipLenCount(3, 2);
+			ChangeShipLenCount(2, 3);
+			ChangeShipLenCount(1, 4);
 		}
 		void SeaBattleField::ResetShipsRemain(){	//Значения ships_remain становятся равны значениям ships
 			for(int i = 0; i <= ships[0]; i++)
 				ships_remain[i] = ships[i];
 		}
-		void SeaBattleField::ResetField(){	//Удалить все сделанные ходы
+		void SeaBattleField::ResetMoves(){	//Удалить все сделанные ходы и очистить значения на поле
 			ClearField();
-			while(moves.size() > 0)
-				moves.pop_back();
+			moves.clear();
 		}
-		void SeaBattleField::Reset(){
-			ResetFieldValueMean();
-			ResetShips();
+		void SeaBattleField::Reset(){	//Сброс значений объекта для новой игры с том же количестве кораблей и размере поля
 			ResetShipsRemain();
-			ResetField();
+			ResetMoves();
+		}
+		void SeaBattleField::FullReset(){	//Полный сброс объекта до значений по умолчанию
+			ResetField();	//Включает в себя ResetMoves()
+			ResetShips();	//Включает в себя ResetShipsRemain()
+			ResetFieldValueMean();
 		}
 		
+		
 	//Изменения значений для игры
+	//public
 		int SeaBattleField::ChangeFieldValueMean(int EMPTY, int SHOT, int STRIKE, int KILL, int SHIP){	//Изменить значения, которыми обозначаются клетки в игре; 0 - успешно; 1 - ошибка, одинаковые значения; 2 - недопустимое значение (<0 или >255)
 			if (IsInCharRange(EMPTY) || IsInCharRange(SHOT) || IsInCharRange(STRIKE) || IsInCharRange(KILL) || IsInCharRange(SHIP))
 				return 2;
@@ -246,6 +280,7 @@
 				return 1;
 			unsigned char *temp = 0;
 			temp = new unsigned char[new_max_len + 1];
+			
 			if (!temp)
 				return MemoryAllocationError(1);
 			temp[0] = new_max_len;
@@ -254,6 +289,7 @@
 					temp[i] = ships[i];
 				else
 					temp[i] = 0;
+			
 			if (ships_remain)
 				delete[] ships_remain;
 			ships_remain = temp;
@@ -271,6 +307,7 @@
 		
 		
 	//Работа с сохраняемыми ходами
+	//private
 		void SeaBattleField::MakeMove(){	//Создаёт новый ход
 			std::vector<CellValueChange> move;
 			moves.push_back(move);
@@ -290,6 +327,17 @@
 				moves[moves_index][i].newState = new_value;
 			}
 		}
+		bool SeaBattleField::RegenerateFieldByMoves(){	//Восстановить поле по ходам; true - успешно; false - ошибка
+			ClearField();
+			int temp = ChangeFieldSize(cols, rows);
+			if (temp == 1 || temp == 2)
+				return false;
+			for(int i = 0; i < moves.size(); i++)
+				for(int n = 0; n < moves[i].size(); n++)
+					field[moves[i][n].coordinate_index] = moves[i][n].newState;
+			return true;
+		}
+	//public
 		int SeaBattleField::CancelLastMove(){	//Откатывает изменения за последний ход; Возвращает: 0 - ходы отсутствуют; 1 - был выстрел по SHOT, STRIKE, KILL; 2 - было попадание в SHIP; 3 - был подрыв корабля; 4 - был выстрел по EMPTY; 5 - была установка корабля;
 			int result = 4;
 			if (moves.size())
@@ -337,6 +385,7 @@
 		
 		
 	//Чтение из файла
+	//private
 		int SeaBattleField::LoadFromFile(std::string file_name, bool is_it_second_field){	//Загрузка из файла; 0 - успешно; 1 - некорректное название/ошибка открытия файла; 2 - ошибка чтения
 			if (file_name.length() < 3)
 				return 1;
@@ -346,10 +395,9 @@
 			std::ifstream file(file_name.c_str());	//Открываем файл для чтения
 			if (!file.is_open())
 				return 1;
-			ResetFieldValueMean();
-			ResetShips();
-			ResetShipsRemain();
-			ResetField();
+				
+			FullReset();
+			
 			if	(
 				!ReadFindString(file, (is_it_second_field ? "SeaBattleField2" : "SeaBattleField1")) ||
 				!ReadElement(file, "c", &cols) ||
@@ -367,16 +415,7 @@
 			file.close();
 			return 0;
 		}
-		bool SeaBattleField::RegenerateFieldByMoves(){	//Восстановить поле по ходам; true - успешно; false - ошибка
-			ClearField();
-			int temp = ChangeFieldSize(cols, rows);
-			if (temp == 1 || temp == 2)
-				return false;
-			for(int i = 0; i < moves.size(); i++)
-				for(int n = 0; n < moves[i].size(); n++)
-					field[moves[i][n].coordinate_index] = moves[i][n].newState;
-			return true;
-		}
+	//public
 		bool SeaBattleField::ReadFindString(std::ifstream &flow_name, std::string your_string){	//Найти строку в файле; true - удалось; false - не удалось
 			std::string str;
 			while (getline(flow_name, str)){
@@ -446,7 +485,9 @@
 			return true;
 		}
 		
+		
 	//Запись в файл
+	//private
 		bool SeaBattleField::HaveFormatInName(std::string file_name, std::string file_format){
 			if (file_name.length() < 4)
 				return false;
@@ -474,6 +515,7 @@
 			}
 			return 0;
 		}
+	//public
 		bool SeaBattleField::RecordString(std::ofstream &flow_name, std::string your_string){	//Записать в файл строку; true - успешно; false - ошибка записи
 			return (flow_name << your_string).good();
 		}
@@ -519,6 +561,7 @@
 		
 		
 	//Работа с кораблями
+	//private
 		void SeaBattleField::SetInSide(unsigned char set_what, int side, int len, int x, int y){	//ставит set_what, len клеток в направлении side
 			int x_2 = XYChangesBySide(0, side), y_2 = XYChangesBySide(1, side), index;
 			for(side = 0, x = x - x_2, y = y - y_2; side < len; x = x + x_2, y = y + y_2, side++)
@@ -641,6 +684,7 @@
 							}
 			return count;
 		}
+	//public	
 		int SeaBattleField::ShotTo(int x, int y){	//Выстрелить; 0 - попадание по SHIP; 1 - подрыв последнего корабля; 2 - выстрел в пустую клетку; 3 - бессмысленный выстрел, попадание в SHOT, STRIKE, KILL; 4 - ошибка координаты; 5 - ошибка значения ячейки
 			if ((x < 0 || x >= cols) || (y < 0 || y >= rows))
 				return 4;
@@ -716,8 +760,177 @@
 				return 1;
 			return 0;
 		}
-		
+	
+	
+	//Перевод объекта в строковый формат и обратно
+	//private
+		std::string SeaBattleField::MoveToString_(int move_index, bool with_state_change){	//Приватный метод MoveToString
+			if (move_index < 0 || move_index >= moves.size())
+				return "";
+			
+			std::string result = std::to_string(moves[move_index].size());
+			for(int i = 0; i < moves[move_index].size(); i++)
+				if (with_state_change)
+					result += (" " + std::to_string(moves[move_index][i].coordinate_index) + " " + std::to_string(moves[move_index][i].prevState) + std::to_string(moves[move_index][i].newState));
+				else
+					result += (" " + std::to_string(moves[move_index][i].coordinate_index) + " " + std::to_string(StateToStandard(moves[move_index][i].prevState)) + std::to_string(StateToStandard(moves[move_index][i].newState)));
+			
+			return result;
+		}
+	//public
+		std::string SeaBattleField::MoveToString(int move_index){	//Вернуть изменения всего хода как строку
+			return MoveToString_(move_index, false);
+		}
+		std::string SeaBattleField::MovesToString(){	//Вернуть изменения всех ходов как строку
+			int c1 = GetValueOfValueMean(0), c2 = GetValueOfValueMean(1), c3 = GetValueOfValueMean(2), c4 = GetValueOfValueMean(3), c5 = GetValueOfValueMean(4);
+			ChangeFieldValueMean(0, 1, 2, 3, 4);
+			
+			std::string result = std::to_string(moves.size()) + " ";
+			for(int i = 0; i < moves.size(); i++){
+				result += MoveToString_(i, true);
+				if (i < moves.size() - 1)
+					result += " ";
+			}
+			
+			ChangeFieldValueMean(c1, c2, c3, c4, c5);
+			return result;
+		}
+		std::string SeaBattleField::FieldToString(){	//Записать поле и ходы в виде строки
+			std::string result = std::to_string(cols) + " " + std::to_string(rows) + " ";
+			result += MovesToString();
+			return result;
+		}
+		std::string SeaBattleField::ShipsToString(){	//Записать ships в виде строки
+			std::string result = "";
+			for(int i = 0; i <= ships[0]; i++)
+				result += std::to_string(ships[i]) + (i < ships[0] ? " " : "");
+			return result;
+		}
+		std::string SeaBattleField::ShipsRemainToString(){	//Записать ships_remain в виде строки
+			std::string result = "";
+			for(int i = 0; i <= ships_remain[0]; i++)
+				result += std::to_string(ships_remain[i]) + (i < ships_remain[0] ? " " : "");
+			return result;
+		}
+		std::string SeaBattleField::ToString(){	//Записать весь объект в виде строки
+			std::string result = "";
+			result += FieldToString() + " ";	//Включает в себя размер поля и данные ходов
+			result += ShipsToString() + " ";
+			result += ShipsRemainToString();
+			return result;
+		}
+		bool SeaBattleField::FieldFromString(std::string& field_string){	//Восстановить поле и ходы из строки
+			try{
+				int cols_ = StrToInt(field_string);
+				int rows_ = StrToInt(field_string);
+				int flag = ChangeFieldSize(cols_, rows_);
+				
+				if (flag != 0)
+					if (flag == 3)
+						ClearField();
+					else
+						return false;
+				
+				int temp, size, move_size, m_index, m_prevState, m_newState;
+				SeaBattleField tmp;
+				
+				tmp.ResetMoves();	//Если вдруг откуда-то есть ходы
+				
+				
+				
+				size = StrToInt(field_string);
+				for(int i = 0; i < size; i++){
+					tmp.MakeMove();
+					move_size = tmp.StrToInt(field_string);
+					
+					for(int n = 0; n < move_size; n++){
+						m_index = tmp.StrToInt(field_string);
+						temp = tmp.StrToInt(field_string);
+						m_prevState = (temp / 10);
+						m_newState = (temp % 10);
+						tmp.AddCellValueChange(m_index, m_prevState, m_newState);
+					}
+				}
+				moves = tmp.moves;
+				RegenerateFieldByMoves();
+				return true;
+			}
+			catch(...){
+				return false;
+			}
+		}
+		bool SeaBattleField::ShipsFromString(std::string& ships_string){	//Восстановить ships из строки
+			std::string result = "";
+			try{
+				int max_ships_len = StrToInt(ships_string);
+				if (ships)
+					delete[] ships;
+				ships = 0;
+				ships = new unsigned char[max_ships_len  + 1];
+				if (!ships)
+					MemoryAllocationError(0);
+				ships[0] = max_ships_len;
+				
+				for(int i = 1; i <= max_ships_len; i++)
+					ships[i] = StrToInt(ships_string);
+				return true;
+			}
+			catch(...){
+				return false;
+			}
+		}
+		bool SeaBattleField::ShipsRemainFromString(std::string& ships_remain_string){	//Восстановить ships_remain из строки
+			try{
+				int max_ships_len = StrToInt(ships_remain_string);
+				
+				if (ships_remain)
+					delete[] ships_remain;
+				ships_remain = 0;
+				ships_remain = new unsigned char[max_ships_len + 1];
+				if (!ships_remain)
+					MemoryAllocationError(0);
+				ships_remain[0] = max_ships_len;
+				
+				for(int i = 1; i <= max_ships_len; i++)
+					ships_remain[i] = StrToInt(ships_remain_string);
+				return true;
+			}
+			catch(...){
+				return false;
+			}
+		}
+		bool SeaBattleField::FromString(std::string string_data){	//Восстановить весь объект из строки
+			try{
+				/*
+				std::cout << "ДО ВОССТАНОВЛЕНИЯ:\nCR: " << cols << ", " << rows << "\nShips: ";
+				for(int i = 0; i <= ships[0]; i++)
+					std::cout << (int)ships[i] << " ";
+				for(int i = 0; i <= ships_remain[0]; i++)
+					std::cout << (int)ships_remain[i] << " ";
+				std::cout << "\nMovesSize: " << moves.size() << "\n\n";
+				*/
+				
+				if (!FieldFromString(string_data) || !ShipsFromString(string_data) || !ShipsRemainFromString(string_data))
+					return false;
+				/*
+				std::cout << "ПОСЛЕ ВОССТАНОВЛЕНИЯ:\nCR: " << cols << ", " << rows << "\nShips: ";
+				for(int i = 0; i <= ships[0]; i++)
+					std::cout << (int)ships[i] << " ";
+				std::cout << "\nShipsRemain: ";
+				for(int i = 0; i <= ships_remain[0]; i++)
+					std::cout << (int)ships_remain[i] << " ";
+				std::cout << "\nMovesSize: " << moves.size() << "\n\n";
+				*/
+				return true;
+			}
+			catch(...){
+				return false;
+			}
+		}
+	
+	
 	//Необходимые для работы методы
+	//private
 		const int SeaBattleField::IntPow(int x, int y) const{	//Возвести x в степень y
 			int a = 1;
 			for (y; y > 0; y--)
@@ -751,3 +964,35 @@
 				return 0;
 			return 1;
 		}
+		const int SeaBattleField::StateToStandard(unsigned char value) const{	//Перевести число из value в значение из field_value_mean
+			for(int i = 0; i < 5; i++)
+				if (value == field_value_mean[i])
+					return i;
+		}
+		const int SeaBattleField::StandardToState(unsigned char value) const{	//Перевести число из индекса field_value_mean в соответствующее значение из field_value_mean
+			return field_value_mean[value];
+		}
+		const int SeaBattleField::StrToInt(std::string& text, bool change_string){	//Вернуть первое число из начала строки
+			size_t pos = text.find(' ');
+			int temp;
+			try{
+				temp = std::stoi(text.substr(0, (pos == SIZE_MAX ? text.length() : pos)));
+			}
+			catch(...){
+				throw std::string("String to int error");	//Чтобы вместо Ошибка="stoi" выбрасывать string="текст ошибки"
+			}
+			if (change_string)
+				text = text.substr((pos == SIZE_MAX ? 0 : (pos + 1)), text.length());
+			return temp;
+		}
+	//public
+		/*
+		const void SeaBattleField::Print(){
+			std::cout << "Cols: " << cols << "\nRows: " << rows << "\nShips: ";
+			for(int i = 0; i <= ships[0]; i++)
+				std::cout << (int)ships[i] << " ";
+			for(int i = 0; i <= ships_remain[0]; i++)
+				std::cout << (int)ships_remain[i] << " ";
+			std::cout << "\nMovesSize: " << moves.size() << "\n\n";
+		}
+		*/

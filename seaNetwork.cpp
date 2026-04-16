@@ -1,19 +1,33 @@
 #ifndef SEABATTLENETWORK_BM_CPP
 #define SEABATTLENETWORK_BM_CPP
 
-//При start(), stop(), получается подключиться и отправлять сообщения, хоть получатель их и не увидит (не обработаются)
-//#include <locale>
-#include <iostream>
+
+
+#ifdef  _WIN32
+//#define _WIN32_WINNT 0x0A00
+#define _WIN32_WINDOWS 0x0601
+#endif
+/*
+#define ASIO_STADNALONE
+*/
+
 #include <asio.hpp>	//Для сетевого взаимодействия
 #include <thread>		//Для ThreadSafeVector
 #include <mutex>		//Для ThreadSafeVector
-#include <queue>
 #include <atomic>	//Для atomic объектов
 #include <memory>	//Для std::shared_ptr
 #include <vector>
 
-using asio::ip::tcp;
 
+//В случае необходимости в режиме отладки (cout информации) раскомментировать следующую строку
+//#define SEABATTLENETWORK_BM_CPP_DEBUG_MODE true
+
+#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+#include <iostream>
+#endif
+
+
+using asio::ip::tcp;
 
 
 class P2PMessenger {
@@ -22,9 +36,10 @@ private:
 		private:
 			std::vector<std::string> data_;
 			std::mutex mutex_;
+			size_t pos_;
 		
 		public:
-			ThreadSafeVector() {}											//Конструктор
+			ThreadSafeVector() { pos_ = SIZE_MAX; }											//Конструктор
 			
 			ThreadSafeVector(const ThreadSafeVector& other){				//Конструктор копирования
 				*this = other;
@@ -44,6 +59,28 @@ private:
 				return text;
 		    }
 		    
+		    size_t find(std::string data){									//Узнать индекс искомых данных
+				mutex_.lock();
+				for(int i = size() - 1; i >= 0; i--)
+		    		if (data_[i] == data){
+		    			mutex_.unlock();
+		    			return i;
+					}
+				mutex_.unlock();
+		    	return SIZE_MAX;
+			}
+		    
+		    bool is_exists(std::string data){								//Имеются ли в векторе искомые данные
+		    	mutex_.lock();
+				for(int i = 0; i < size(); i++)
+		    		if (data_[i] == data){
+		    			mutex_.unlock();
+		    			return true;
+					}
+				mutex_.unlock();
+		    	return false;
+			}
+		    
 		    bool is_locked(){									//Узнать, заблокирован ли mutex
 		    	if (mutex_.try_lock()){
 		    		mutex_.unlock();
@@ -60,7 +97,7 @@ private:
 				mutex_.unlock();
 			}
 	    
-			size_t size(){										//size()
+			size_t size(){										//size() - получить количество элементов в векторе
 				return data_.size();
 			}
 			
@@ -78,7 +115,7 @@ private:
 				return text;
 			}
 			
-			std::string pop_back(){								//pop_back(), который ещё и возвращает значение удалённого элемента
+			std::string pop_back(){								//pop_back() - получить значение последнего элемента (с удалением)
 				mutex_.lock();
 				std::string text = data_[data_.size() - 1];
 				data_.pop_back();
@@ -86,19 +123,27 @@ private:
 				return text;
 			}
 			
-			void push_back(std::string text){					//push_back()
+			void push_back(std::string text){					//push_back() - добавление в конец
 				mutex_.lock();
 				data_.push_back(text);
 				mutex_.unlock();
 			}
 			
-			void clear(){										//clear()
+			void clear(){										//clear() - полная очистка вектора
 				mutex_.lock();
 				data_.clear();
 				mutex_.unlock();
 			}
 			
-			void erase(int index){								//erase()
+			bool rem(std::string text){							//rem() - удаление объекта с переданным содержимым; true - успешно; false - объект не найден
+				if (is_exists(text)){
+					erase(find(text));
+					return true;
+				}
+				return false;
+			}
+						
+			void erase(int index){								//erase() - удаление по индексу
 				mutex_.lock();
 				data_.erase((data_.begin() + index));
 				mutex_.unlock();
@@ -114,13 +159,12 @@ public:
 		DATA,
 		MessageTypeEnd
 	}MessageType;
-	bool first_start_ = true;
-	bool ignore_messages = true;
+	bool first_start_ = true;		//Первый ли раз происходит запуск
     asio::io_context io_context_;
     tcp::acceptor acceptor_;
     std::shared_ptr<tcp::socket> connected_socket_;
     std::thread io_thread_;
-    //std::mutex mutex_;
+    //std::mutex connect_mutex_;
     //std::queue<std::string> message_queue_;
     
     std::string remote_ip_;						//IP удалённого устройства
@@ -129,18 +173,20 @@ public:
     unsigned short listen_port_;				//Порт текущего устройства (прослушиваемый)
     
     
-    std::atomic<bool> running_{false};			//Работает ли класс с сетью
+    std::atomic<bool> running_{false};			//Запущена ли работа с сетью
     std::atomic<bool> connected_{false};		//Подключён ли к другому устройству по сети
-    std::atomic<bool> single_message_{true};	//В случае первого знакомства 			
+    std::atomic<bool> single_message_{true};	//В случае первого знакомства
+    std::atomic<bool> connection_end_{false};	//Идёт процесс завершения соединения
     
     std::string required_message = "";
     std::string last_read_service_message = "last_read_service_message";
     std::atomic<bool> met_required_message{false};
     
     
-    ThreadSafeVector service_;
-    ThreadSafeVector message_;
-    ThreadSafeVector data_;
+    ThreadSafeVector system_;
+    ThreadSafeVector service;
+    ThreadSafeVector message;
+    ThreadSafeVector data;
     //std::mutex service_mutex_;
     //std::queue<std::string> service_;
     
@@ -152,15 +198,27 @@ public:
     P2PMessenger() : acceptor_(io_context_)	{}
     
     ~P2PMessenger() {
-    	stop();
+    	if (io_thread_.joinable()){
+    		stop();
+    		//close_connection();	//вызывается в disconnect()
+    		//std::this_thread::sleep_for(std::chrono::seconds(2));
+	    	acceptor_.cancel();
+	    	//connected_socket_->close();
+	    	//connected_socket_.reset();
+	    	//connected_socket_->cancel();
+	        io_context_.stop();
+	        io_thread_.join();
+	        //io_context_.restart();
+		}
+		system("pause");
     }
     
     void start(){	//Начать сетевое взаимодействие
     	if (running_)
     		return;
-    	running_ = true;
-    	ignore_messages = false;
-    	
+    	else
+    		running_ = true;
+    	connection_end_ = false;
     	
 	    if (first_start_){
 	    	first_start_ = false;
@@ -170,61 +228,90 @@ public:
 		    acceptor_.set_option(tcp::acceptor::reuse_address(true));	//Разрешить использовать адрес, даже если он использовался недавно
 		    acceptor_.bind(endpoint);	//Привязать сокет к конкретному IP и порту
 		    acceptor_.listen();	//Перевести acceptor в режим ожидания подключения (только с этого момента начнёт "слушать")
+        	listen_port_ = acceptor_.local_endpoint().port();	//Узнать, какой порт нам дала ОС
+			//local_ip_ = acceptor_.address().to_string();
+			start_accept();	//Начинаем слушать входящие подключения
+			io_thread_ = std::thread([this]() { io_context_.run(); });	//Запускаем поток для обработки сетевых событий
 		}
-		
-		
-        //local_ip_ = acceptor_.address().to_string();
-        
-        //Узнать, какой порт нам дала ОС
-        listen_port_ = acceptor_.local_endpoint().port();
-        
-        //Начинаем слушать входящие подключения
-        start_accept();
-        
-        //Запускаем поток для обработки сетевых событий
-        io_thread_ = std::thread([this]() { io_context_.run(); });
 	}
 	
 	void stop(){	//Завершить сетевое взаимодействие
+		if (!running_)
+			return;
+		disconnect();
 		running_ = false;
-		ignore_messages = true;
-        if (io_thread_.joinable()) {
-        	if (connected_){
-        		_send_message("ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ");
-        		close_connection();
-			}
-        	acceptor_.cancel();
-            io_context_.stop();
-            io_thread_.join();
-            io_context_.restart();
-        }
+        //if (io_thread_.joinable()) {
+        	//if (connected_){
+        	//_send_message("ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ");
+        		
+        		//close_connection();
+			//}
+        	//acceptor_.cancel();
+        	
+            //io_context_.stop();
+            //io_thread_.join();
+            //io_context_.restart();
+        //}
+	}
+	
+	void reset_all_data(){
+		system_.clear();
+		service.clear();
+		message.clear();
+		data.clear();
 	}
 	
 	bool is_connected(){
 		return connected_;
 	}
     
-    void wait_for_connect(){
-    	while(!connected_){
-    		std::this_thread::yield();
-    		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    void wait_for_connect(bool throw_exception_after_delay = false){
+    	if (throw_exception_after_delay){
+    		for(int i = 0; i < 100; i++){
+    			std::this_thread::yield();
+	    		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			//throw std::string("")
 		}
+		else
+			while(!connected_){
+		    	std::this_thread::yield();
+		    	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
 	}
 	
-	void set_certain_message(std::string text){
-		required_message = text;
-	}
-	
-	void wait_for_certain_message(){
-		int i = 0;
-		while(!met_required_message){
+	void wait_for_certain_service_message(std::string text){
+		//int i = 0;
+		for(int i = 0; i < 100 && !is_connected(); i++)
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		
+		while(!service.rem(text)){
+			if (!is_connected())
+				throw std::string("Can not wait for service message without active connection.");
     		std::this_thread::yield();
     		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    		if (i % 100 == 0)
-    			std::cout << "Ожидание слова.\n";
-    		i++;
+    		//if (i % 100 == 0)
+    		//	std::cout << "Ожидание слова.\n";
+    		//i++;
 		}
-		met_required_message = false;
+		//met_required_message = false;
+	}
+private:	
+	void _wait_for_certain_system_message(std::string text, bool while_connected = false){
+		size_t pos;
+		std::atomic<bool> true_(true);
+		for(int i = 0; (while_connected ? is_connected() : (i < 5)); i++){
+			pos = system_.find(text);
+			if (pos != SIZE_MAX){
+				system_.erase(pos);
+				return;
+			}
+			//std::cout << "Размер: \n" << system_.size() << std::endl;
+			//std::cout << "gggПоследнее прочтённое: " << last_read_service_message << std::endl;
+			//for(int g = 0; g < system_.size(); g++)
+			//	std::cout << "Vector[" << g << "] = " << system_[g] << std::endl;
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
 	}
 	
 private:
@@ -263,15 +350,15 @@ public:
 	        }
 	        
 	        // Получаем указатель на данные
-	        const char* data = asio::buffer_cast<const char*>(response.data());
+	        const char* resp_data = asio::buffer_cast<const char*>(response.data());
 	        size_t size = response.size();
 	        
 	        // Ищем начало тела ответа (после \r\n\r\n)
 	        const char* body_start = nullptr;
 	        for (size_t i = 0; i < size - 3; ++i) {
-	            if (data[i] == '\r' && data[i+1] == '\n' && 
-	                data[i+2] == '\r' && data[i+3] == '\n') {
-	                body_start = data + i + 4;
+	            if (resp_data[i] == '\r' && resp_data[i+1] == '\n' && 
+	                resp_data[i+2] == '\r' && resp_data[i+3] == '\n') {
+	                body_start = resp_data + i + 4;
 	                break;
 	            }
 	        }
@@ -338,7 +425,9 @@ public:
 	        return std::string(value_start, value_end - value_start);
 	        
 	    } catch (std::exception& e) {
+	    	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	        std::cout << "Ошибка геолокации: " << e.what() << std::endl;
+	        #endif
 	        return "Unknown";
 	    }
 	}
@@ -413,6 +502,12 @@ public:
 	    }
 	    
 	    return ip;
+	}
+	unsigned short get_listening_port(){
+		return listen_port_;
+	}
+	unsigned short get_remote_port(){
+		return remote_port_;
 	}
 	
 	std::string get_local_code(){
@@ -510,60 +605,93 @@ public:
         acceptor_.async_accept(*socket,
             [this, socket](const asio::error_code& error) {
                 if (!error) {
+        			#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
                     std::cout << "\nВходящее подключение от: "
                               << socket->remote_endpoint() << std::endl;
-                    
+                    #endif
                     //Принимаем подключение
                     handle_incoming_connection(socket);
                 }
                 
                 //Продолжаем слушать новые подключения
-                if (running_)
-                    start_accept();
+                //if (running_)
+                start_accept();
             });
     }
     
     void handle_incoming_connection(std::shared_ptr<tcp::socket> socket) {
-        // Если уже есть активное соединение, закрываем его
-        if (connected_socket_ && connected_socket_->is_open()) {
-            std::cout << "Уже есть активное подключение. Отклоняю запрос от: "
-                  << socket->remote_endpoint() << std::endl;
-	        
-	        //Сообщение об отказе
-	        try {
-	            std::string reject_msg = std::to_string(SERVICE) + " ПОДКЛЮЧЕНИЕ_ОТКАЗАНО: Уже имеется подключение\n";
-	            asio::write(*socket, asio::buffer(reject_msg));
+    	bool reject_connect = false;
+    	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+    	std::string cout_message;
+    	#endif
+    	std::string net_message;
+    	
+    	
+    	//Если сетевое взаимодействие отключено
+    	if (!running_){
+    		#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+    		cout_message = "Сетевое взаимодействие отключено. Отклоняю запрос от: ";
+    		#endif
+    		net_message = std::to_string(SYSTEM) + " ПОДКЛЮЧЕНИЕ_ОТКАЗАНО: Сетевое взаимодействие отключено\n";
+    		reject_connect = true;
+		}
+        //Если уже есть активное соединение
+        else if (connected_socket_ && connected_socket_->is_open()) {
+        	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+        	cout_message = "Уже есть активное подключение. Отклоняю запрос от: ";
+        	#endif
+    		net_message = std::to_string(SYSTEM) + " ПОДКЛЮЧЕНИЕ_ОТКАЗАНО: Уже имеется подключение\n";
+    		reject_connect = true;
+        }
+        
+        if (reject_connect){
+        	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+        	std::cout << cout_message << socket->remote_endpoint() << std::endl;
+        	#endif
+        	try {
+	            asio::write(*socket, asio::buffer(net_message));
 	        } catch (...) {
 	            //Игнорирование ошибок отправки
 	        }
 	        
 	        socket->close();
-	        return;
-        }
+			return;
+		}
         
+        //Подтверждение подключения
         connected_socket_ = socket;
         remote_ip_ = socket->remote_endpoint().address().to_string();
         remote_port_ = socket->remote_endpoint().port();
-        
-        // Подтверждаем подключение
 	    try {
-	        std::string accept_msg = std::to_string(SERVICE) + " ПОДКЛЮЧЕНИЕ_ПРИНЯТО\n";
+	        std::string accept_msg = std::to_string(SYSTEM) + " ПОДКЛЮЧЕНИЕ_ПРИНЯТО\n";
 	        asio::write(*connected_socket_, asio::buffer(accept_msg));
 	    } catch (std::exception& e) {
+	    	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	        std::cout << "Не удалось отправить подтверждение: " << e.what() << std::endl;
+	        #endif
 	        connected_socket_.reset();
 	        return;
 	    }
 	    
 	    connected_ = true;
 	    single_message_ = false;
+	    #ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	    std::cout << "Подключён к " << remote_ip_ << ":" << remote_port_ << std::endl;
+	    #endif
 	    start_read();
     }
     
-    void handle_connect(std::string command) {
-        std::string ip = command.substr(0, command.find(' '));
-        unsigned short port = std::stoi(command.substr(command.find(' '), command.length() - 1));
+    void handle_connect(std::string command = "") {
+    	if (!running_)
+        	return;
+        
+        std::string ip = remote_ip_;
+        unsigned short port = remote_port_;
+        if (command != ""){
+        	ip = command.substr(0, command.find(' '));
+        	port = std::stoi(command.substr(command.find(' '), command.length() - 1));
+		}
+        
         
         try {
             // Если уже есть соединение, закрываем его
@@ -583,76 +711,41 @@ public:
             if (!ec) {
                 remote_ip_ = ip;
                 remote_port_ = port;
-                
                 //std::cout << "Успешно подключён к " << ip << ":" << port << std::endl;
                 
                 // Начинаем читать сообщения
                 single_message_ = false;
                 start_read();
             } else {
+            	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
                 std::cout << "Не удалось подключиться: " << ec.message() << std::endl;
+                #endif
                 connected_socket_.reset();
             }
             
         } catch (std::exception& e) {
+        	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
             std::cout << "Ошибка: " << e.what() << std::endl;
+            #endif
+            throw std::string("Failed to connect to another user error.");
         }
     }
     
-    /*
-	asio::streambuf read_buffer_;
-	
-	void start_reads() {
-    if (!connected_socket_ || !connected_socket_->is_open()) {
-        return;
-    }
-
-    
-    asio::async_read_until(*connected_socket_, read_buffer_, '\n',	//Читаем до символа новой строки
-        [this](const asio::error_code& error, size_t bytes_transferred) {
-            if (!error) {
-                //Извлекаем все полные сообщения из буфера
-                std::istream is(&read_buffer_);
-                std::string line;
-                
-                while (std::getline(is, line)) {
-                    if (!line.empty()) {
-                        //Убираем \r если есть
-                        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
-                            line.pop_back();
-                        
-                        // ???????????? ?????????
-                        std::cout << "\n[" << remote_ip_ << "]: " << line << std::endl;
-                    
-						if (line[0] - '0' == MESSAGE){
-							std::cout << "Пакет сообщение!" << std::endl;
-						}
-						else if (line[0] - '0' == SERVICE){
-							std::cout << "Пакет сервиса!" << std::endl;
-						}
-						else if (line[0] - '0' == MOVE){
-							std::cout << "Пакет с ходом!" << std::endl;
-						}
-                    }
-                }
-                
-                //Продолжаем чтение
-                start_read();
-            }
-			else{
-            	// Соединение разорвано
-                std::cout << "\nПотеряно соединение с " << remote_ip_ << std::endl;
-                std::cout << "Вы: " << std::flush;
-                    
-                if (connected_socket_) {
-                	connected_socket_->close();
-                	connected_socket_.reset();
-            	}
-            }
-        });
+    void disconnect(){
+    	//std::cout << "ПОДКЛЮЧЁН? - " << connected_ << std::endl;
+    	//std::cout << "RUNNING? - " << running_ << std::endl;
+    	if (connected_){
+    		connection_end_ = true;
+	    	_send_message("ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ");
+	    	_wait_for_certain_system_message("ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ: ПОДТВЕРЖДЕНИЕ", true);
+		}
+    	close_connection();
 	}
-	*/
 	
+	void connect(){
+		
+	}
+    
 	void start_read() {
         if (!connected_socket_ || !connected_socket_->is_open()) {
             return;
@@ -662,16 +755,14 @@ public:
         
         connected_socket_->async_read_some(asio::buffer(*buffer),
             [this, buffer](const asio::error_code& error, size_t bytes_transferred) {
-                if (!error && bytes_transferred > 0) {
-                	if (ignore_messages){
-                		std::cout << "Сообщение получено, но я должен их игнорировать.\n";
-                		if (!single_message_)
-                    		start_read();
-                    	return;
-					}
-                    // Получили сообщение
+                if (!error && bytes_transferred > 0){
+                    if (!running_)
+                    	start_read();
+					// Получили сообщение
+					#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
                     std::cout << "(Получено сообщение): " << std::endl;
-                    std::string message(buffer->data(), bytes_transferred);
+                    #endif
+                    std::string message_buf(buffer->data(), bytes_transferred);
                     
                     
                     /*
@@ -681,56 +772,99 @@ public:
 						message.pop_back();
 					}
 					*/
-					
                     size_t pos;
-                    while ((pos = message.find('\n')) != std::string::npos){	//Обработка на случай, если несколько сообщений "склеились" в один пакет
-	                    std::string sub_message = message.substr(0, pos);	//Извлекаем одно сообщение
+                    size_t reject_message_pos;
+                    
+                    while ((pos = message_buf.find('\n')) != std::string::npos){	//Обработка на случай, если несколько сообщений "склеились" в один пакет
+	                    std::string sub_message = message_buf.substr(0, pos);	//Извлекаем одно сообщение
 	                    //Выводим полученное сообщение
-	                    std::cout << "\n[" << remote_ip_ << "]: " << sub_message << std::endl;
+	                    
 	                    
 	                    char sm_char = sub_message[0] - '0';
 	                    std::string msg = sub_message.substr(2, pos);
-	                    if (sm_char != SYSTEM && (msg == required_message || msg == last_read_service_message)){
-	                    	met_required_message = true;
-	                    	std::cout << "Встретил требуемое сообщение.\n";
-						}
+	                    #ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+	                    std::cout << "\n[" << remote_ip_ << "]: " << "'" << msg << "'" << std::endl;
+	                    #endif
+	                    //if (sm_char == SERVICE && (msg == required_message || msg == last_read_service_message)){
+	                    //	met_required_message = true;
+	                    //	std::cout << "Встретил требуемое сообщение.\n";
+						//}
+						
 	                    switch(sm_char){
 	                    	case SYSTEM:
+	                    		system_.push_back(msg);
+	                    		
+	                    		reject_message_pos = msg.find("ПОДКЛЮЧЕНИЕ_ОТКАЗАНО");
+	                    		
 	                    		if (msg == "ПОДКЛЮЧЕНИЕ_ПРИНЯТО"){
 	                    			connected_ = true;
 	                    			single_message_ = false;
 								}
-								else if (msg == "ПОДКЛЮЧЕНИЕ_ОТКАЗАНО: Уже имеется подключение"){
-									
-								}
-								else if (msg == "ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ"){
+								else if (reject_message_pos != std::string::npos){
+									//Действия на случай, если пришёл отказ на подключение (с каким либо комментарием)
 									close_connection();
 								}
+								else if (msg == "ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ"){
+									_send_message("ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ: ПОДТВЕРЖДЕНИЕ");
+									connection_end_ = true;
+									//close_connection();
+								}
+								else if (msg == "ЗАВЕРШЕНИЕ_СОЕДИНЕНИЯ: ПОДТВЕРЖДЕНИЕ"){
+									//close_connection();
+								}
+								#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	                    		std::cout << "Пакет системы!" << std::endl;
+	                    		#endif
 	                    		last_read_service_message = msg;
+	                    		//std::cout << "Последнее прочтённое: " << last_read_service_message << ", размер: " << P2PMessenger::system_.size() << std::endl;
 	                    		break;
 	                    	case SERVICE:
+	                    		service.push_back(msg);
+	                    		
+	                    		#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	                    		std::cout << "Пакет сервиса!" << std::endl;
+	                    		#endif
 	                    		break;
 	                    	case MESSAGE:
+	                    		message.push_back(msg);
+	                    		
+	                    		#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	                    		std::cout << "Пакет сообщения!" << std::endl;
+	                    		#endif
 	                    		break;
 	                    	case DATA:
+	                    		data.push_back(msg);
+	                    		
+	                    		#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
 	                    		std::cout << "Пакет данных!" << std::endl;
+	                    		#endif
 	                    		break;
 						}
 
 						//Удаление обработанного сообщения из буфера
-	                    message.erase(0, pos + 1);
+	                    message_buf.erase(0, pos + 1);
                     }
                     
                     // Продолжаем чтение
                     if (!single_message_)
                     	start_read();
-                } else {
-                    // Соединение разорвано
+                }
+				else if (!running_ || connection_end_){	//Соединение завершено (отключено сетевое взаимодействие)
+					#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+					std::cout << "\nЗавершено соединение с " << remote_ip_ << std::endl;
+					#endif
+					connection_end_ = false;
+                	close_connection();
+				}
+				else if (!connected_){	//Подключиться не удалось
+					#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+					std::cout << "\nНе удалось подключиться к " << remote_ip_ << std::endl;
+					#endif
+				}
+				else{	//Соединение разорвано
+					#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
                     std::cout << "\nПотеряно соединение с " << remote_ip_ << std::endl;
-                    
+                    #endif
                     close_connection();
                 }
             });
@@ -745,41 +879,60 @@ public:
         }
 	}
 //public:
-	void send_service(std::string message){
-		_send_message(message, SERVICE);
+	void send_service(std::string text){
+		_send_message(text, SERVICE);
 	}
 	
-	void send_message(std::string message){
-		_send_message(message, MESSAGE);
+	void send_message(std::string text){
+		_send_message(text, MESSAGE);
 	}
 	
-	void send_data(std::string message){
-		_send_message(message, DATA);
+	void send_data(std::string text){
+		_send_message(text, DATA);
     }
     
 //private:
-	void _send_message(std::string message, MessageType type = SYSTEM){
+	void _send_message(std::string text, MessageType type = SYSTEM){
+		if (!running_){
+			#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+			std::cout << "Сетевое взаимодействие отключено, а хотел отправить сообщение: " << text << std::endl;
+			#endif
+            return;
+		}
+		
 		if (!connected_socket_ || !connected_socket_->is_open()) {
-            std::cout << "Ни к кому не подключён.\n";
+			#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+            std::cout << "Ни к кому не подключён, а хотел отправить сообщение: " << text << std::endl;
+            #endif
             return;
         }
-        if (message == "")
-        	return;
+        if (text == ""){
+        	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+        	std::cout << "Попытка отправить пустое сообщение: " << text << std::endl;
+        	#endif
+            return;
+		}
         try {
             // Добавляем символ новой строки для разделения сообщений
             //asio::write(*connected_socket_, asio::buffer(std::to_string(type) + " " + std::to_string(nnn) + " " + message + "\n"));
-            asio::write(*connected_socket_, asio::buffer(std::to_string(type) + " " + message + "\n"));
+            asio::write(*connected_socket_, asio::buffer(std::to_string(type) + " " + text + "\n"));
             
             //Эхо своего сообщения
-            std::cout << "You: " << message << std::endl;
+            #ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
+            std::cout << "You: '" << text << "'" << std::endl;
+            #endif
             
         } catch (std::exception& e) {
+        	#ifdef SEABATTLENETWORK_BM_CPP_DEBUG_MODE
             std::cout << "Ошибка отправки сообщения: " << e.what() << std::endl;
+            #endif
         }
     }
     
 //public:
-    void print_status() {
+    /*
+	void print_status() {
+    	
         std::cout << "\n=== Статус ===" << std::endl;
         std::cout << "Слушаю на порту: " << listen_port_ << std::endl;
         
@@ -792,8 +945,8 @@ public:
         }
         std::cout << "==============" << std::endl;
     }
+    */
 };
-
 
 
 

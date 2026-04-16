@@ -155,8 +155,7 @@ class SeaBattleGame : public SeaBattleField{ //Интерфейс и реализация игры
 		
 		void SetShipsRandomly() 
 		{
-	        ClearField();
-	        ResetShipsRemain();
+	        Reset();
 	        srand(clock()); // инициализация генератора
 	        
 	        int max_len = GetMaxShipLen();

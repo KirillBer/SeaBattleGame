@@ -5,12 +5,11 @@
 
 //#include <locale>
 
-/*
-#ifdef  _WIN32
-#define _WIN32_WINNT 0x0A00
-#endif
-#define ASIO_STADNALONE
-*/
+
+
+
+
+
 
 
 
@@ -179,9 +178,11 @@ private:
     	std::string country = "country";
 	}Player;
 	bool host;
+	bool MyMoveTurn;
 	Player MP_player1;
     Player MP_player2;
     P2PMessenger SeaNet;
+    std::thread thread_;
     
     enum MENU {
         NEW_GAME = 0,
@@ -732,98 +733,707 @@ private:
     
     
     
-    void MP_GameConfirmation(){
-    	SeaNet.set_certain_message("ГОТОВНОСТЬ_УСПЕШНО");	//Что ожидать
+    
+    
+    
+    bool MP_GameConfirmation(){	//Подтверждение готовности; Возвращает "готов": true - да, false - нет
+    	//std::cout << "Ваш соперник: " << MP_player2.name << ".\nВы готовы?";
+		
+		//getch();	//Обработка для получения согласия или отказа от игры
     	
-    	getch();
-    	
-    	SeaNet.send_message("ГОТОВНОСТЬ_УСПЕШНО");	//Отправить ожидаемое сообщение
-    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+    	SeaNet.send_service("ГОТОВНОСТЬ_УСПЕШНО");	//Отправить ожидаемое сообщение
+    	SeaNet.wait_for_certain_service_message("ГОТОВНОСТЬ_УСПЕШНО");	//Ждать получения сообщения
+    	return true;
 	}
 	
-	void MP_CoinFlip(){
-		if (host){	//Подброс монетки
-			SeaNet.set_certain_message("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Что ожидать
-    	
-	    	srand(clock());
-	    	bool coin_result = (rand() % 2);
-	    	
-	    	SeaNet.send_message("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Отправить ожидаемое сообщение
-	    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
-		}
-		else{	//Ожидание результата подброса от хоста
-			SeaNet.set_certain_message("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Что ожидать
-			
-	    	getch();
-	    	
-	    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
-	    	SeaNet.send_message("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Отправить ожидаемое сообщение
-		}
-	}
-    
-    void MP_PrepareForGame(){
+    void MP_SettingShips(){	//Расстановка кораблей для игры
     	system("cls");
-    	SeaNet.set_certain_message("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Что ожидать
     	
-    	MP_player1.field.Reset();	//Сброс всех настроек поля
+    	MP_player1.field.Reset();	//Сброс изменений поля
+    	//MP_player2.field = MP_player1.field;
+    	
     	
     	//Установка кораблей
-    	if (Confirm("Расставить корабли вручную?"))
+    	if (Confirm("Расставить корабли вручную?")) 
 			SetShipsManually(MP_player1.field);	//Ручная установка
 		else
 			SetShipsRandomly(MP_player1.field);	//Случайная расстановка
     	
+    	
+    	//system("pause");
+    	
+    	
     	//MP_player1.field.DrawField();
+    	//std::string temp = MP_player1.field.ToString();
+    	//std::cout << "ToString: '" << temp << "'\n";
     	
-    	SeaNet.send_message("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Отправить ожидаемое сообщение
-    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+    	//std::cout << "Итог: " << MP_player2.field.FromString(temp) << std::endl;
+    	//MP_player2.field.DrawField();
     	
-    	//MP_player2.field.RegenerateFieldByMoves();	//private
+    	//std::cout << "MovesSize: " << MP_player1.field.GetMovesSize() << std::endl;
+    	//for(int i = 0; i < MP_player1.field.GetMovesSize(); i++)
+    	//	std::cout << "i=" << i << " " << MP_player1.field.MoveToString(i) << std::endl;
     	
-    	SeaNet.wait_for_certain_message();	//Ждать получения ожидаемого сообщения
+    	SeaNet.send_service("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Отправить ожидаемое сообщение
+    	SeaNet.wait_for_certain_service_message("УСТАНОВКА_КОРАБЛЕЙ_ЗАВЕРШЕНА");	//Ждать получения ожидаемого сообщения
 	}
-    
-    void waiting_points(bool *stop){
-    	std::cout << "\033[?25l";	//Скрытие курсора
+	
+	void MP_FieldsSynchronization(bool first_time = true){	//Синхронизация полей
+		if (first_time){
+			//std::cout << "СИНХРОНИЗАЦИЯ начало\n";
+			SeaNet.send_data(MP_player1.field.ToString());
+			//std::cout << "СИНХРОНИЗАЦИЯ отправлено\n";
+			while(SeaNet.data.size() == 0)
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			MP_player2.field.FromString(SeaNet.data.pop_back());
+			//std::cout << "Итог восстановления из строки: "<<  MP_player2.field.FromString(SeaNet.data.pop_back()) << std::endl;
+		}
+		else{
+			
+			
+		}
+			
+	}
+	
+	bool MP_CoinFlip(){	//Жеребьёвка. Возвращает "Моя очередь ходить первым?": true - да, false - нет
+		bool coin_result, flag = false;
+		
+	    waiting(&flag, "Ожидание второго игрока");
+	    
+		if (host){	//Выполнение подброса монетки
+    	
+	    	srand(clock());
+	    	coin_result = (rand() % 2);
+	    	
+	    	MyMoveTurn = coin_result;
+	    	player_turn = MyMoveTurn;	//Костыль для MP_Game
+	    	
+	    	SeaNet.send_data(std::to_string(coin_result));
+	    	
+	    	SeaNet.send_service("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Отправить ожидаемое сообщение
+	    	
+	    	
+	    	SeaNet.wait_for_certain_service_message("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Ждать получения ожидаемого сообщения
+		}
+		else{	//Ожидание результата подброса от хоста
+	    	
+	    	SeaNet.wait_for_certain_service_message("РЕЗУЛЬТАТ_МОНЕТКИ_ОТПРАВЛЕН");	//Ждать получения ожидаемого сообщения
+	    	
+			std::string text = SeaNet.data.pop_back();
+			coin_result = StrToInt(text);
+	    	MyMoveTurn = !coin_result;
+	    	player_turn = MyMoveTurn;	//Костыль для MP_Game
+	    	
+	    	SeaNet.send_service("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");	//Отправить ожидаемое сообщение
+		}
+		flag = true;	//Завершить анимацию ожидания
+		waiting_join();
+		
+		std::cout << "\nРезультат жеребьёвки:\n\tПервым ходить будет" << (MyMoveTurn ? std::string("е Вы\n") : (std::string(" ") + MP_player2.name + std::string("\n")));
+	}
+	
+	void MP_DrawFields(){
+		MP_player1.field.DrawFields(MP_player2.field);
+	}
+	
+	bool MP_MoveTurn(bool& game_over) 
+	{
+	    bool extra_turn = true;
+	    
+	    while (extra_turn && !game_over) 
+		{
+	        system("cls");
+	    
+	    	//if(extra_turn)
+	        //	current_player.DrawFields(enemy);
+	        //else
+	        //	enemy.DrawFields(current_player);
+	        MP_DrawFields();
+	        
+	        
+	        if(player_turn) // т.е. первый игрок
+	        {
+	        	cout << "Ваш ход.\n";
+			}
+			else{			// иначе второй игрок
+				cout << "Ходит " << MP_player2.name << ".\n";
+			}
+	        
+	        
+			if (player_turn){
+	        	cout << "Введите '0' для вызова меню, либо координаты для выстрела (например, A5): ";
+	        }
+	        else{
+	        	cout << "Для вызова меню введите '0'\n";
+			}
+			
+	        string input;
+	        if (player_turn)
+	        	cin >> input;
+	        
+	        // Проверяем, не хочет ли пользователь вызвать меню
+	        /*
+	        if (input == "0") {
+	            InGameMenu(current_player, static_cast<SeaBattleBot&> (enemy), game_over);
+	            if (game_over){
+	            	system("pause");
+	            	return false;
+				} 
+	            continue;
+	        }
+	        */
+	        
+
+	        // Обрабатываем обычный ход
+	        int x, y, result;
+	        if (input.length() >= 2 || !player_turn) 
+			{
+				if (player_turn){
+					char input_x = input[0];
+	            
+		            try {
+		                y = stoi(input.substr(1));
+		            } catch (...) {
+		                InputErrorMessage();
+		                extra_turn = true;
+		                continue;
+		            }
+		            
+		            if (input_x >= 'A' && input_x <= 'Z') {
+		                x = input_x - 'A';
+		            } else if (input_x >= 'a' && input_x <= 'z') {
+		                x = input_x - 'a';
+		            } else {
+		                InputErrorMessage();
+		                extra_turn = true;
+		                continue;
+		            }
+		            
+		            if (x < 0 || x >= (player_turn ? MP_player2.field.GetCols() : MP_player1.field.GetCols()) || y < 0 || y >= (player_turn ? MP_player2.field.GetRows() : MP_player1.field.GetRows())) {
+		                InputErrorMessage();
+		                extra_turn = true;
+		                continue;
+		            }
+		            result = MP_ShotTo(x, y);
+				}
+				else{
+					result = MP_WaitShotResult();
+				}
+	            
+	            //int result = enemy.ShotTo(x, y);
+	            system("cls");
+	            
+	            switch (result) 
+				{
+	                case 0:
+	                	if (player_turn)
+	                    	cout << "Попадание! Вы получаете дополнительный ход.\n";
+	                    else
+	                    	cout << "По вашему кораблю попали!\n";
+	                    	//cout << "По вашему кораблю попали! " << MP_player2.name << " получил дополнительный ход.\n";
+	                    
+	                    extra_turn = true;
+	                    break;
+	                case 1:
+	                	if (player_turn)
+	                    	cout << "Вражеский";
+						else
+							cout << "Ваш";
+						cout << " корабль взорван! ";
+						
+						cout << "Оставшееся количество ";
+						if (player_turn){
+							int ships_remain_count = MP_player2.field.GetCountOfShipsRemain();
+							if (ships_remain_count == 0)
+								return true;
+							cout << "вражеских кораблей: " << ships_remain_count << "\n";
+						}
+						else{
+							int ships_remain_count = MP_player1.field.GetCountOfShipsRemain();
+							if (ships_remain_count == 0)
+								return true;
+							cout << "ваших кораблей: " << ships_remain_count << "\n";
+						}
+
+	                    extra_turn = true;
+	                    break;
+	                case 2:
+	                	if (player_turn)
+	                		cout << "Промах!\n";
+	                	else
+	                		cout << MP_player2.name << " промахнулся!\n";
+	                	
+	                    extra_turn = false;
+	                    break;
+	                case 3:
+	                	if (player_turn)
+	                		cout << "Туда нет смысла стрелять!\n";
+	                	else
+	                		cout << MP_player2.name << " сделал бессмысленный ход!\n";
+	                	
+	                    extra_turn = true;
+	                    break;
+	                default:
+	                    extra_turn = false;
+	                    break;
+	            }
+	            
+	            if (extra_turn) {
+	            	if (player_turn)
+	                	cout << "Продолжайте ваш ход.\n";
+	                else
+	                	cout << "Соперник получил дополнительный ход.\n";
+	                system("pause");
+	            }
+	        } 
+			else 
+			{
+	            InputErrorMessage();
+	            extra_turn = true;
+	        }
+	    }
+	    
+	    return false;
+	}
+	
+	int MP_ShotTo(int x, int y){
+		int result;
+		result = MP_player2.field.ShotTo(x, y);
+		//ShotTo возвращает: 0 - попадание по SHIP; 1 - подрыв последнего корабля; 2 - выстрел в пустую клетку;
+		//3 - бессмысленный выстрел, попадание в SHOT, STRIKE, KILL; 4 - ошибка координаты; 5 - ошибка значения ячейки
+		SeaNet.send_data(std::to_string(x) + " " + std::to_string(y));
+		SeaNet.send_service("ДАННЫЕ_ХОДА_ОТПРАВЛЕНЫ");
+		SeaNet.wait_for_certain_service_message("ДАННЫЕ_ХОДА_ПОЛУЧЕНЫ");
+		return result;
+	}
+	
+	int MP_WaitShotResult(){
+		SeaNet.wait_for_certain_service_message("ДАННЫЕ_ХОДА_ОТПРАВЛЕНЫ");
+		while(SeaNet.data.size() == 0);
+		SeaNet.send_service("ДАННЫЕ_ХОДА_ПОЛУЧЕНЫ");
+		std::string shot_message = SeaNet.data.pop_back();
+		int x = StrToInt(shot_message);
+		int y = StrToInt(shot_message);
+		return MP_player1.field.ShotTo(x, y);
+	    //SeaNet.send_service("РЕЗУЛЬТАТ_МОНЕТКИ_ПОЛУЧЕН");
+	}
+	
+	void MP_Game(){		//Обработка сетевой игры
+		cout << "Игра начинается. Приятной игры!\n";
+        
+        bool turn_result;
+        bool game_over = false;
+        while (!game_over) 
+		{
+            //if (player_turn) 
+            //    cout << "Сейчас ваша очередь ходить.\n";
+            //else
+            //	cout << "Сейчас очередь ходить " << MP_player2.name << ".\n";
+            //system("pause");
+            
+	        if (player_turn) {
+	            turn_result = MP_MoveTurn(game_over); //turn_result = PlayerTurn(MP_player1.field, MP_player2.field, "Ваш", game_over);
+	        } else {
+	            turn_result = MP_MoveTurn(game_over); //turn_result = PlayerTurn(MP_player2.field, MP_player1.field, MP_player2.name, game_over);
+	        }
+	        
+	        if (turn_result) {
+	            game_over = true;
+	        } 
+			else if (!game_over) { // переход хода другому игроку
+	            player_turn = !player_turn;
+	        }
+	        
+	        system("cls");
+	        if (!game_over) {
+	        	cout << "\aСмена очереди хода.\n";
+            	system("pause");
+        	}
+        }
+        
+        
+        
+        if (player_turn) {
+        	cout << "\aВсе корабли ";
+        	std::cout << MP_player2.name << " ";
+        } else {
+            std::cout << "\aВсе Ваши корабли ";
+        }
+        cout << "потоплены!\nПобеду одержал";
+        if (player_turn) {
+            std::cout << "и Вы";
+        } else {
+            std::cout << " " << MP_player2.name;
+        }
+        cout << ".\nСпасибо за игру!\n";
+        system("pause");
+        system("cls");
+	}
+	
+	bool MP_GameEnded(){	//Опрос о дальнейшем действии пользователя по завершении сетевой игры (реванш или выйти); true - реванш; false - выйти
+		return false;
+	}
+	
+	void MP_GameStatesSwitch(bool have_an_unfinished_game = false){
+		typedef enum MP_GameStates_{
+			//Стандартные стадии начала игры
+			GameAccepting,
+			SettingShips,
+			FirstSynchronization,
+			CoinFlip,
+			GameStart,
+			GameEnded,
+			//Специфичные
+			ReconnectTry
+		}MP_GameStates_;
+		
+		int temp;
+		MP_GameStates_ state = (have_an_unfinished_game ? ReconnectTry : GameAccepting);
+		
+		while(true){
+			switch(state){
+				//Стандартные
+				case GameAccepting:			//Подтверждение готовности начать игру
+					if (MP_GameConfirmation())
+						state = SettingShips;	//Готов
+					else
+						return;					//Не готов
+					break;
+				
+				case SettingShips:			//Расстановка кораблей
+					MP_SettingShips();
+					
+					state = FirstSynchronization;
+					break;
+				
+				case FirstSynchronization:	//Получение чужого и отправка своего поля для игры
+					MP_FieldsSynchronization();
+					
+					state = CoinFlip;
+					break;
+				
+				case CoinFlip:				//Жеребьёвка
+					MP_CoinFlip();
+					
+					state = GameStart;
+					break;
+				
+				case GameStart:				//Отправка в процесс игры
+					MP_Game();
+					std::cout << "MP_GAME\n";
+					state = GameEnded;
+					break;
+				
+				case GameEnded:				//Отправка в процесс игры
+					temp = MP_GameEnded();
+					switch(temp){	//Что выбрал(и) игрок(и)
+						case 0:	//Завершение игры
+							return;
+						
+						case 1:	//Повторная игра
+							state = SettingShips;
+							break;
+					}
+					break;
+				
+				//Специфичные ситуации
+				case ReconnectTry:			//Если процесс был завершён во время идущей игры
+					
+					break;
+				
+			}
+		}
+	}
+	
+	void MP_DrawFrame(unsigned int weight, unsigned int height, bool overwrite){
+		if (weight < 2 || height < 2)
+			return;
+		
+		CMDDrawLine(true, false, true, true, false);
+    	for(int i = 0; i < (weight - 2); i++)
+    		CMDDrawLine(true, false, true, false, true);
+    	CMDDrawLine(true, false, false, true, true);
+    	std::cout << std::endl;
+    	
+    	for(int n = 0; n < (height - 2); n++){
+    		CMDDrawLine(true, true, false, true, false);
+	    	if (overwrite){
+	    		for(int i = 0; i < (weight - 2); i++)
+	    			std::cout << " ";
+			}
+	    	else
+    			CMDCursorMoveRight(true, (weight - 2));
+	    	CMDDrawLine(true, true, false, true, false);
+	    	//Вместо std::cout << std::endl;
+			CMDCursorMoveLeft(true, weight);
+	    	CMDCursorMoveBottom();
+		}
+    	
+    	CMDDrawLine(true, true, true, false, false);
+    	for(int i = 0; i < (weight - 2); i++)
+    		CMDDrawLine(true, false, true, false, true);
+    	CMDDrawLine(true, true, false, false, true);
+    	//Вместо std::cout << std::endl;
+		CMDCursorMoveLeft(true, weight);
+	    CMDCursorMoveBottom();
+	}
+	
+	void waiting(bool *stop, std::string text_before_waiting_points = ""){	//Отрисовка трёх точек ожидания в потоке thread_ пока флаг stop = false
+		thread_ = std::thread([this, stop, text_before_waiting_points]() { waiting_points(stop, text_before_waiting_points); });
+	}
+	void waiting_join(){	//Остановить выполнение потока, пока не завершится обработка точек из waiting
+		thread_.join();
+	}
+    void waiting_points(bool *stop, std::string text_before_waiting_points = ""){
+    	CMDCursorOFF();	//Скрытие курсора
 		int i;
+		std::cout << text_before_waiting_points;
 		while(!(*stop)){
         	for(i = 0; i < 3 && !(*stop); i++){
         		std::this_thread::sleep_for(std::chrono::milliseconds(500));
         		std::cout << ".";
 			}
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-			
-			std::cout << "\033[" << i << "D";
-			for(int n = i; n > 0; n--)
-				std::cout << " ";
-			std::cout << "\033[" << i << "D";
+			CMDRemNSymbols(true, i);
+			//std::cout << "\033[" << i << "D";
+			//for(int n = i; n > 0; n--)
+			//	std::cout << " ";
+			//std::cout << "\033[" << i << "D";
 		}
-		std::cout << "\033[?25h";	//Отображение курсора
+		CMDCursorON();	//Отображение курсора
+	}
+	
+	const int StrToInt(std::string& text, bool change_string = true){	//Вернуть первое число из начала строки (1 в 1 из SeaBattleField)
+		size_t pos = text.find(' ');
+		int temp;
+		
+		try{
+			temp = std::stoi(text.substr(0, (pos == SIZE_MAX ? text.length() : pos)));
+		}
+		catch(...){
+			throw std::string("String to int error");	//Чтобы вместо Ошибка="stoi" выбрасывать string="текст ошибки"
+		}
+		if (change_string)
+			text = text.substr((pos == SIZE_MAX ? 0 : (pos + 1)), text.length());
+		
+		return temp;
+	}
+	//Функции Escape-последовательностей
+	std::string EscapeCodeTemplate(bool out_to_cout_once, std::string code_text){
+		if (out_to_cout_once){
+			std::cout << code_text;
+			return "";
+		}
+		return code_text;
+	}
+	std::string CMDStrClear(bool out_to_cout_once = true, bool set_cursor_at_string_start = true){	//Очистка строки, на которой находится курсор
+		return EscapeCodeTemplate(out_to_cout_once, (set_cursor_at_string_start ? "\033[2K\r" : "\033[2K"));	//\033[2K - перезаписать все символы в строке пробелами; \r - перевести курсор в начало строки
+	}
+	std::string CMDCursorON(bool out_to_cout_once = true){	//Включение мигания курсора
+		return EscapeCodeTemplate(out_to_cout_once, "\033[?25h");	//\033[?25h - включить мигание курсора
+	}
+	std::string CMDCursorOFF(bool out_to_cout_once = true){	//Выключение мигания курсора	
+		return EscapeCodeTemplate(out_to_cout_once, "\033[?25l");	//\033[?25l - выключить мигание курсора
+	}
+	std::string CMDRemNSymbols(bool out_to_cout_once = true, int symbols_count_for_removing = 1){	//Удалить symbols_count_for_removing символов слева от курсора в текущей строке
+		std::string code_text = "\033[" + std::to_string(symbols_count_for_removing) + "D", spaces_for_add = "";	//\033[{N}D - сдвиг курсора на N символов влево
+		for(int i = 0; i < symbols_count_for_removing; i++)
+			spaces_for_add += ' ';
+		
+		return EscapeCodeTemplate(out_to_cout_once, (code_text + spaces_for_add + code_text));
+	}
+	std::string CMDCursorMoveTop(bool out_to_cout_once = true, unsigned int symbols_count_for_move = 1){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[" + std::to_string(symbols_count_for_move) + "A");
+	}
+	std::string CMDCursorMoveRight(bool out_to_cout_once = true, unsigned int symbols_count_for_move = 1){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[" + std::to_string(symbols_count_for_move) + "C");
+	}
+	std::string CMDCursorMoveBottom(bool out_to_cout_once = true, unsigned int symbols_count_for_move = 1){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[" + std::to_string(symbols_count_for_move) + "B");
+	}
+	std::string CMDCursorMoveLeft(bool out_to_cout_once = true, unsigned int symbols_count_for_move = 1){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[" + std::to_string(symbols_count_for_move) + "D");
+	}
+	std::string CMDDrawLine(bool out_to_cout_once = true, bool top = false, bool right = false, bool bottom = false, bool left = false){
+		//	Графические линии (все под прямым углом)
+		//	Для отображения необходимо вывести: \033(0W,
+		//		где W - код символа
+		//
+		//	Код | Направление, в котором смотрит линия
+		//------+--------------------------------------
+		//	j	|	Верх, 		,	 , Лево 					\033(0j
+		//	k	|				, Низ, Лево						\033(0k
+		//	l	|		, Право , Низ							\033(0l
+		//	m	|	Верх, Право									\033(0m
+		//	n	|	Верх, Право , Низ, Лево						\033(0n
+		//	q	|		, Право , 	   Лево						\033(0q
+		//	t	|	Верх, Право , Низ							\033(0t
+		//	u	|	Верх, 		, Низ, Лево						\033(0u
+		//	v	|	Верх, Право	, 	 , Лево						\033(0v
+		//	w	|		, Право	, Низ, Лево 					\033(0w
+		//	x	|	Верх, 		, Низ							\033(0x
+		//------+--------------------------------------
+		/*
+		std::string result;
+			 if (top 	&& !right 	&& !bottom 	&& left)
+			result = "\033(0j";
+		else if (!top 	&& !right 	&& bottom 	&& left)
+			result = "\033(0k";
+		else if (!top 	&& right 	&& bottom 	&& !left)
+			result = "\033(0l";
+		else if (top 	&& right 	&& !bottom 	&& !left)
+			result = "\033(0m";
+		else if (top 	&& right 	&& bottom 	&& left)
+			result = "\033(0n";
+		else if (!top 	&& right 	&& !bottom 	&& left)
+			result = "\033(0q";
+		else if (top 	&& right 	&& bottom 	&& !left)
+			result = "\033(0t";
+		else if (top 	&& !right 	&& bottom 	&& left)
+			result = "\033(0u";
+		else if (top 	&& right 	&& !bottom 	&& left)
+			result = "\033(0v";
+		else if (!top 	&& right 	&& bottom 	&& left)
+			result = "\033(0w";
+		else if (top 	&& !right 	&& bottom 	&& !left)
+			result = "\033(0x";
+		*/
+		/*
+		char symbol;
+		if (top)
+			if (right)
+				if (bottom)
+					if (left)
+						symbol = 'n';
+					else
+						symbol = 't';
+				else
+					if (left)
+						symbol = 'v';
+					else
+						symbol = 'm';
+			else
+				if (bottom)
+					if (left)
+						symbol = 'u';
+					else
+						symbol = 'x';
+				else
+					if (left)
+						symbol = 'j';
+					else
+						symbol = ' ';	//Только верх
+		else
+			if (right)
+				if (bottom)
+					if (left)
+						symbol = 'w';
+					else
+						symbol = 'l';
+				else
+					if (left)
+						symbol = 'q';
+					else
+						symbol = ' ';	//Только право
+			else
+				if (bottom)
+					if (left)
+						symbol = 'k';
+					else
+						symbol = ' ';	//Только низ
+				else
+					if (left)
+						symbol = ' ';	//Только лево
+					else
+						symbol = ' ';	//Ни одна сторона
+		*/
+		
+		char symbol;
+		if (top)	if (right)	if (bottom) if (left) 	symbol = 'n';
+											else		symbol = 't';
+								else		if (left)	symbol = 'v';
+											else		symbol = 'm';
+					else		if (bottom)	if (left)	symbol = 'u';
+											else		symbol = 'x';
+								else		if (left)	symbol = 'j';
+											else		symbol = ' ';	//Только верх
+		else		if (right)	if (bottom)	if (left)	symbol = 'w';
+											else		symbol = 'l';
+								else		if (left)	symbol = 'q';
+											else		symbol = ' ';	//Только право
+					else		if (bottom)	if (left)	symbol = 'k';
+											else		symbol = ' ';	//Только низ
+								else		if (left)	symbol = ' ';	//Только лево
+											else		symbol = ' ';	//Ни одна сторона
+		if (symbol == ' ')
+			return "";
+		
+		/*
+		//--------------------НЕ РАБОТАЕТ-------------------------
+		char symbol;
+		int index = ((top * 1000) + (right * 100) + (bottom * 10) + left);
+		switch(index){
+			case 1111: symbol = 'n'; break;
+			case 1110: symbol = 't'; break;
+			case 1101: symbol = 'v'; break;
+			case 1100: symbol = 'm'; break;
+			case 1011: symbol = 'u'; break;
+			case 1010: symbol = 'x'; break;
+			case 1001: symbol = 'j'; break;
+		//	case 1000: symbol = ' '; break;	//Только верх
+			case 0111: symbol = 'w'; break;
+			case 0110: symbol = 'l'; break;
+			case 0101: symbol = 'q'; break;
+		//	case 0100: symbol = ' '; break;	//Только право
+			case 0011: symbol = 'k'; break;
+		//	case 0010: symbol = ' '; break;	//Только низ
+		//	case 0001: symbol = ' '; break;	//Только лево
+		//	case 0000: symbol = ' '; break;	//Ни одна сторона
+			default:
+				std::cout << "Default стороны: " << top << right << bottom << left << ", i=" << i << std::endl;
+				return "";
+				//break;
+		}
+		*/
+		//std::cout << "Стороны: " << top << right << bottom << left << std::endl;
+		//std::cout << "index=" << index << ", symbol='" << symbol << "', line='" << (std::string("\033(0") + symbol) << "'\n";
+		//system("pause");
+		return EscapeCodeTemplate(out_to_cout_once, std::string("\033(0") + symbol);
+	}
+	std::string CMDBlinkingTextON(bool out_to_cout_once = true){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[5m");	// \033[5m - сделать следующий выводимый текст мигающим
+	}
+	std::string CMDBlinkingTextOFF(bool out_to_cout_once = true){
+		return EscapeCodeTemplate(out_to_cout_once, "\033[0m");	// \033[0m - сбросить атрибуты
+	}
+	std::string CMDBlinkingText(bool out_to_cout_once = true, std::string text = "", int text_color = 0, int text_background_color = 0){
+		//Информация про атрибуты текста - https://blog.sedicomm.com/2026/03/24/kak-izmenyat-stili-vyvoda-komandy-echo-v-linux/
+		// \033[5m - Сделать следующий выводимый текст мигающим. \033[0m - сбросить атрибуты
+		return EscapeCodeTemplate(out_to_cout_once, "\033[5" +	(text_color == 0 ? "" : (";" + std::to_string(text_color))) +
+								(text_background_color == 0 ? "" : (";" + std::to_string(text_background_color))) + "m" + text + "\033[0m");
 	}
 	
 	
-    
+	
     void MP_CreateLobby(std::string lobby_name = ""){
     	host = true;
     	bool flag = false;
-    	std::thread thr_;
-		std::cout << "Определение публичного IP";
-		thr_ = std::thread([this, &flag]() { waiting_points(&flag); });
+    	
+		waiting(&flag, "Определение публичного IP");
 		flag = true;
-		thr_.join();
+		waiting_join();
 		
 		std::cout << "\rПубличный код друга: " << SeaNet.get_public_code() << " и IP: " << SeaNet.get_public_ip() << "\n";
         std::cout << "Локальный код друга: " << SeaNet.get_local_code() << " и IP: " << SeaNet.get_local_ip() << "\n";
         
         
         flag = false;
-        std::cout << "Ожидание подключения второго игрока";
-        thr_ = std::thread([this, &flag]() { waiting_points(&flag); });
+        waiting(&flag, "Ожидание подключения второго игрока");
 		SeaNet.wait_for_connect();
 		flag = true;
-		thr_.join();
+		waiting_join();
 		
-		std::cout << "\033[?25h\033[2K\r" << MP_player2.name << " подключился.\n";
+		std::cout << CMDStrClear(false) << MP_player2.name << " подключился.\n";
 	}
 	
 	std::string MP_InputCode(std::string message_befor_input = ""){
@@ -838,7 +1448,7 @@ private:
 
 	        if (input_symbol == 8){			//Кнопка Backspace (Стереть)
 				if (input.length() > 0){
-					std::cout << "\033[1D \033[1D";	//Убрать 1 символ из вывода и итоговой строки
+					CMDRemNSymbols();	//std::cout << "\033[1D \033[1D";	//Убрать 1 символ из вывода и итоговой строки
 					input.pop_back();
 				}
 			}
@@ -850,19 +1460,22 @@ private:
 				input += input_symbol;
 				std::cout << input_symbol;
 			}
-			std::cout << "\033[s\033[1B" << input.length() << "\033[u";
+			
+			//std::cout << "\033[s\033[1B" << input.length() << "\033[u";
 		}
+		std::cout << std::endl;
 		return input;
 	}
 	
-	void MP_ConnectLobby(unsigned long long lobby_id = 0, std::string player_code = ""){
+	void MP_ConnectLobby(unsigned long long lobby_id = 0, std::string player_code = ""){	//Попытка подключения к пользователю/лобби
 		host = false;
 		if (lobby_id != 0){
 			
 		}
 		else if (player_code != ""){
 			SeaNet.decode_and_use_code(player_code);
-			SeaNet.handle_connect(SeaNet.remote_ip_ + " " + std::to_string(SeaNet.remote_port_));
+			//SeaNet.handle_connect(SeaNet.remote_ip_ + " " + std::to_string(SeaNet.remote_port_));
+			SeaNet.handle_connect();
 			SeaNet.wait_for_connect();
 		}
 	}
@@ -872,6 +1485,77 @@ private:
 	}
     
     void Multiplayer(){
+    	MP_player1.field.FullReset();
+    	MP_player2.field.FullReset();
+    	
+		
+		/*
+		//Тест всех возможных комбинаций линий (Всего доступно 11)
+    	system("cls");
+    	bool one, two, four, eight;
+    	for(int i = 0, temp; i < 16; i++){
+    		temp = i;
+    		
+    		eight = temp / 8;
+    		temp -= (8 * eight);
+    		
+    		four = temp / 4;
+    		temp -= (4 * four);
+    		
+    		two = temp / 2;
+    		temp -= (2 * two);
+    		
+    		one = temp % 2;
+    		
+    		std::cout << "i=" << i << "\t" << eight << four << two << one << " '";
+    		CMDBlinkingText(true, CMDDrawLine(false, eight, four, two, one));
+    		std::cout << "'" << std::endl;
+		}
+		std::cout << "i=99 '-'\n"; 
+		std::cout << "i=99 '\033(0q'\n";
+    	std::cout << "i=99 '" << CMDDrawLine(false, false, true, false, true) << "'\n";
+    	return;
+    	*/
+    	/*
+    	//ДЛЯ ТЕСТОВ
+    	std::cout << "НАЧАЛО ИЗМЕНЕНИЙ\n";
+    	MP_player1.field.ChangeFieldSize(30, 30);
+    	MP_player1.field.ChangeMaxShipLen(10);
+    	MP_player1.field.ChangeShipLenCount(5, 2);
+    	MP_player1.field.ChangeShipLenCount(6, 4);
+    	MP_player1.field.ChangeShipLenCount(8, 3);
+    	MP_player1.field.ChangeShipLenCount(10, 5);
+    	std::cout << "КОНЕЦ ИЗМЕНЕНИЙ\n";
+    	//Установка кораблей
+		SetShipsRandomly(MP_player1.field);	//Случайная расстановка
+    	
+    	//MP_FieldsSynchronization();
+    	
+    	MP_player1.field.DrawField();
+    	std::string temp = MP_player1.field.ToString();
+    	std::cout << "ToString: '" << temp << "'\n";
+    	
+    	std::cout << "Начало тестов восстановления из строки:\n";
+    	if (MP_player1.field == MP_player2.field)
+    		std::cout << "\n\n\nПОЛЯ ПОЛНОСТЬЮ РАВНЫ!\n\n\n";
+    	else
+    		std::cout << "\n\n\nПОЛЯ РАЗНЫЕ!!!\n\n\n";
+    	std::cout << "Итог: " << MP_player2.field.FromString(temp) << std::endl;
+    	if (MP_player1.field == MP_player2.field)
+    		std::cout << "\n\n\nПОЛЯ ПОЛНОСТЬЮ РАВНЫ!\n\n\n";
+    	else
+    		std::cout << "\n\n\nПОЛЯ РАЗНЫЕ!!!\n\n\n";
+    	
+    	MP_player1.field.ShotTo(5, 5);
+    	if (MP_player1.field == MP_player2.field)
+    		std::cout << "\n\n\nПОЛЯ ПОЛНОСТЬЮ РАВНЫ!\n\n\n";
+    	else
+    		std::cout << "\n\n\nПОЛЯ РАЗНЫЕ!!!\n\n\n";
+    	//MP_player2.field.DrawField();
+    	std::cout << "\n\n\nРазмер строки: " << temp.length() << "\nРезерв строки: " << temp.capacity() << std::endl;
+    	return;
+    	*/
+    	
     	//SeaNet.start();
     	
     	
@@ -887,10 +1571,10 @@ private:
     	char display, input_symbol;
 	    bool flag;
 	    bool ChoseGame = false;
+	    system("cls");
 	    
     	while(true){
     		display = ' ', input_symbol = ' ';
-    		system("cls");
     		
     		flag = true;
 	    	cout	<< "Сетевая игра\n"
@@ -928,10 +1612,20 @@ private:
 			            case '2':
 			            	system("cls");
 			            	SeaNet.start();
-			            	MP_ConnectLobby(0, MP_InputCode("Введите код друга: "));
-			            	//SeaNet.stop();
+			            	
 			            	ChoseGame = true;
 			            	flag = false;
+			            	try{
+			            		MP_ConnectLobby(0, MP_InputCode("Введите код друга: "));
+							}
+							catch(std::string e){
+								system("cls");
+								std::cout << "Не удалось подключиться.\n";
+								ChoseGame = false;
+							}
+			            	
+			            	//SeaNet.stop();
+			            	
 			            	break;
 			            case '3':
 			            	system("cls");
@@ -945,11 +1639,21 @@ private:
 			        }
 			}
 			if (ChoseGame){
-				std::cout << "Ваш соперник: " << MP_player2.name << ".\nВы готовы?";
-				MP_GameConfirmation();
-				MP_PrepareForGame();
-				
+				try{
+					MP_GameStatesSwitch();
+				}
+				catch(std::string e){
+					system("cls");
+					std::cout << "Что-то пошло не так! Ошибка: " << e << std::endl;
+					system("pause");
+				}
+				SeaNet.disconnect();
+				//std::cout << "Ваш соперник: " << MP_player2.name << ".\nВы готовы?";
+				//MP_GameConfirmation();
+				//MP_SettingShips();
+				//MP_FieldsSynchronization();
 				ChoseGame = false;
+				system("cls");
 			}
 		}
 		
@@ -1030,7 +1734,7 @@ private:
 					MP_CreateLobby();
 					break;
 				case 7:
-					cout << "Введите код друга: "; 
+					cout << "Введите код друга: ";
                 	if (!(cin >> message)){
 		                InputErrorMessage();
 		                break;
