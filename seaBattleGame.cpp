@@ -8,7 +8,7 @@
 
 class SeaBattleGame : public SeaBattleField{ //Интерфейс и реализация игры
 	private:
-		char *FieldSymbol;	//символы отображения клеток во время игры
+		char *FieldSymbol = 0;	//символы отображения клеток во время игры
 	public:
 		SeaBattleGame(int cols_ = 10, int rows_ = 10) : SeaBattleField(cols_, rows_) {
 			FieldSymbol = 0;
@@ -26,16 +26,21 @@ class SeaBattleGame : public SeaBattleField{ //Интерфейс и реализация игры
 				delete[] FieldSymbol;
 			FieldSymbol = 0;
 		}
-		SeaBattleGame(const SeaBattleGame& other){
+		SeaBattleGame(const SeaBattleGame& other) : SeaBattleField(other) {
 			FieldSymbol = 0;
 			FieldSymbol = new char[5];
 			if (!FieldSymbol)
 				exit(1);
+			*this = other;
+		}
+		SeaBattleGame &operator=(const SeaBattleGame& other){
+			SeaBattleField::operator=(other);
 			FieldSymbol[0] = other.FieldSymbol[0];	//Пустая клетка
 			FieldSymbol[1] = other.FieldSymbol[1];	//Стреленая клетка
 			FieldSymbol[2] = other.FieldSymbol[2];	//Раненая клетка корабля
 			FieldSymbol[3] = other.FieldSymbol[3];	//Клетка взорванного корабля
 			FieldSymbol[4] = other.FieldSymbol[4];	//Целая клетка корабля
+			return *this;
 		}
 		
 		void PrintColored(const std::string& text, int color) 

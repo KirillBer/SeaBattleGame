@@ -7,8 +7,7 @@
 			field_value_mean = 0;
 			ships = 0;
 			ships_remain = 0;
-			if (IsNewSizeAvailable(cols_, rows_))
-			{
+			if (IsNewSizeAvailable(cols_, rows_)){
 				cols = 10;
 				rows = 10;
 			}
@@ -34,16 +33,16 @@
 				delete[] ships_remain;
 		}
 		SeaBattleField::SeaBattleField(const SeaBattleField& other){
+			field = new unsigned char[1];
+			field_value_mean = new unsigned char[5];
+			ships = new unsigned char[1];
+			ships_remain = new unsigned char[1];
+			if (!field || !field_value_mean || !ships || !ships_remain)
+				MemoryAllocationError(0);
 			*this = other;
 		}
 		SeaBattleField & SeaBattleField::operator=(const SeaBattleField& other){
 			if (this != &other){
-				field = new unsigned char[1];
-				field_value_mean = new unsigned char[5];
-				ships = new unsigned char[1];
-				ships_remain = new unsigned char[1];
-				if (!field || !field_value_mean || !ships || !ships_remain)
-					MemoryAllocationError(0);
 				// опируем данные из другого объекта
 	            ChangeFieldValueMean(other.field_value_mean[0], other.field_value_mean[1], other.field_value_mean[2], other.field_value_mean[3], other.field_value_mean[4]);
 				ChangeFieldSize(other.cols, other.rows);
@@ -88,6 +87,19 @@
 		}
 		const int SeaBattleField::GetCols() const{	//¬озвращает значение cols
 			return cols;
+		}
+		const int SeaBattleField::GetLastMoveIndex() const{	//¬озвращает индекс пол€, в который был сделан последний ход
+			int temp = -1;
+			if (moves.size() > 0 && moves[moves.size() - 1].size() > 0)
+				if (CheckLastMove() == 3){	//ѕодрыв корабл€
+					for(int i = 0; i < moves[moves.size() - 1].size(); i++)
+						if (moves[moves.size() - 1][i].prevState == field_value_mean[4] && moves[moves.size() - 1][i].newState == field_value_mean[3])	// летка из живой стала взорванной
+							return moves[moves.size() - 1][i].coordinate_index;
+				}
+				else
+					temp = moves[moves.size() - 1][0].coordinate_index;
+			return temp;
+			//return (moves.size() > 0 ? (moves[moves.size() - 1].size() > 0 ? (moves[moves.size() - 1][0].coordinate_index) : -1) : -1);
 		}
 		const int SeaBattleField::GetMovesSize() const{	//¬озвращает количество ходов
 			return moves.size();
@@ -595,21 +607,24 @@
         		  (*x - 1 >= 0 && (field[index - 1] == field_value_mean[4] || field[index - 1] == field_value_mean[3] || field[index - 1] == field_value_mean[2])))
 			{
 				*x += (CalculateWhatInSide(*x, *y, 2, -1) - 1) * XYChangesBySide(0, 2);	//горизонтальное расположение корабл€
+				//std::cout << "FiedShipEdge: 4, x_конца=" << *x << ", y_конца=" << *y << std::endl;
 				return 4;
 			}
 			*y += (CalculateWhatInSide(*x, *y, 1, -1) - 1) * XYChangesBySide(1, 1);
+			//std::cout << "FiedShipEdge: 3, x_конца=" << *x << ", y_конца=" << *y << std::endl;
 			return 3;
 		}
 		int SeaBattleField::CalculateWhatInSide(int x, int y, int side, int what){	//считает количество what в направлении side до EMPTY или SHOT клетки
 			int	x2 = XYChangesBySide(0, side), y2 = XYChangesBySide(1, side), pos;
-			for(side = 0, pos = (cols * y) + x; !(field[pos] == field_value_mean[0] || field[pos] == field_value_mean[1]) && (pos >= 0 && pos < cols * rows); pos += (y2 * cols) + x2)
+			//for(side = 0, pos = (cols * y) + x; !(field[pos] == field_value_mean[0] || field[pos] == field_value_mean[1]) && (pos >= 0 && pos < cols * rows); pos += (y2 * cols) + x2)
+			for(side = 0; !(field[(cols * y) + x] == field_value_mean[0] || field[(cols * y) + x] == field_value_mean[1]) && ((x >= 0 && x < cols) && (y >= 0 && y < rows)); y += y2, x += x2)
 				if (what == -1)
 				{
-					if (field[pos] == field_value_mean[4] || field[pos] == field_value_mean[3] || field[pos] == field_value_mean[2])
+					if (field[(cols * y) + x] == field_value_mean[4] || field[(cols * y) + x] == field_value_mean[3] || field[(cols * y) + x] == field_value_mean[2])
 						side++;
 				}
 				else
-					if (field[pos] == what)
+					if (field[(cols * y) + x] == what)
 						side++;
 			return side;
 		}

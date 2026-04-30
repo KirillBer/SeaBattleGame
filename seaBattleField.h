@@ -1,9 +1,8 @@
 #ifndef SEABATTLEFIELD_BM_H
 #define SEABATTLEFIELD_BM_H
 
-#include <iostream>		//ТЕСТЫ. УАЛИТЬ
-#include <stdexcept>	//ТЕСТЫ. УДАЛИТЬ
 
+//#define SEABATTLEFIELD_BM_H_DEV_MODE
 
 #include <vector>	//Для сохранения и отката ходов
 #include <cstring>	//Для работы с файлами
@@ -27,10 +26,10 @@ class SeaBattleField{	//Механика и логика поля и кораблей
 			}
 		};
 		int cols, rows;	//Допустимы значения от 1 до 100 миллионов, но cols * rows до 1 миллиарда
-		unsigned char *field;	//Допустимы значения от 0 до 255
-		unsigned char *field_value_mean;	//Допустимы значения от 0 до 255
-		unsigned char *ships;	//ships[0] - максимальная длина корабля, ships[от 1 до 255] - кол-во кораблей. Макс. кол-во кораблей любой длины - 255
-		unsigned char *ships_remain;	//копия ships, однако ships_remain является оставшимся кол-вом кораблей в игре, а не настройкой игры
+		unsigned char *field = 0;	//Допустимы значения от 0 до 255
+		unsigned char *field_value_mean = 0;	//Допустимы значения от 0 до 255
+		unsigned char *ships = 0;	//ships[0] - максимальная длина корабля, ships[от 1 до 255] - кол-во кораблей. Макс. кол-во кораблей любой длины - 255
+		unsigned char *ships_remain = 0;	//копия ships, однако ships_remain является оставшимся кол-вом кораблей в игре, а не настройкой игры
 		std::vector<std::vector<CellValueChange> > moves;	//Хранение ходов
 	
 	
@@ -47,6 +46,7 @@ class SeaBattleField{	//Механика и логика поля и кораблей
 	public:
 		const int GetRows() const;	//Возвращает значение rows
 		const int GetCols() const;	//Возвращает значение cols
+		const int GetLastMoveIndex() const;	//Возвращает индекс поля, в который был сделан последний ход
 		const int GetMovesSize() const;	//Возвращает количество ходов
 		const int GetMoveSize(int move_index) const;	//Возвращает количество ходов в ходе с индексом move_index
 		const int GetValueOfValueMean(int type_position) const;	//Если type_position[0, 4] - вернётся текущее значение типа, иначе вернётся 1111 (невозможное значение)
@@ -58,6 +58,9 @@ class SeaBattleField{	//Механика и логика поля и кораблей
 		const int GetCellsOfShipsRemainSum() const;	//Возвращает сумму клеток не взорванных кораблей, оставшееся в игре
 		const int LookAtCellByIndex(int index) const;	//Возвращает хранящееся значение в клетке (при клетке с живым кораблём возвращает значение пустой клетки), иначе -1
 	protected:
+	#ifdef SEABATTLEFIELD_BM_H_DEV_MODE
+	public:
+	#endif
 		int GetValueOfCellByIndex(int index);	//Возвращает хранящееся значение в клетке, иначе -1
 		int GetValueOfCell(int col_index, int row_index);	//Возвращает хранящееся значение в клетке, иначе -1
 		
