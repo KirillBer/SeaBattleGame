@@ -1,7 +1,7 @@
 
 
 //Режим разработчика (для сетевой игры)
-#define SEABATTLEGAMEMENU_DEV_MODE_FUNC	//Функционал [DEV]
+//#define SEABATTLEGAMEMENU_DEV_MODE_FUNC	//Функционал [DEV]
 //#define SEABATTLEGAMEMENU_DEV_MODE_COUT	//Вывод отладочной информации [DEV]
 
 
@@ -1177,7 +1177,8 @@ private:
 		SeaNet.send_data(std::to_string(MP_player1.id) + " " + MP_player1.name);
 		SeaNet.send_service("ДАННЫЕ_АККАУНТА_ОТПРАВЛЕНЫ");
 		SeaNet.wait_for_certain_service_message("ДАННЫЕ_АККАУНТА_ОТПРАВЛЕНЫ");
-		std::string str = SeaNet.data.pop_back();
+		std::string str = SeaNet.data.first();
+		SeaNet.data.erase(0);
 		MP_player2.id = StrToUll(str);
 		MP_player2.name = str;
 		
@@ -1241,7 +1242,9 @@ private:
 			//std::cout << "СИНХРОНИЗАЦИЯ отправлено\n";
 			while(SeaNet.data.size() == 0)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
-			std::string str = SeaNet.data.pop_back();
+			//std::string str = SeaNet.data.pop_back();
+			std::string str = SeaNet.data.first();
+			SeaNet.data.erase(0);
 			if (!MP_player2.field.FromString(str)){
 				std::cout << "Ошибка синхронизации поля. Исходная строка поля: '" << str << "'\n";
 				system("pause");
@@ -1293,7 +1296,7 @@ private:
 	
 	
 	//Работа с аккаунтами
-	bool MP_CreateAccount(){
+	bool MP_CreateAccount(){	//Создание аккаунта: true - создан; false - не создан
 		system("cls");
 		char input_symbol;
 		std::string result = "";
@@ -1354,6 +1357,16 @@ private:
 		if (result == "")
 			return false;
 		MP_player1.name = result;
+		std::ifstream file(MP_player1.name + ".txt");	//Открываем файл для чтения
+		
+		unsigned long long ull = 0;
+		if	(!ReadElementULL(file, "id", &ull)){	//Ошибка чтения
+				file.clear();	//Сбросить состояние чтения
+				file.close();
+				return false;
+		}
+		MP_player1.id = ull;
+		file.close();
 		return true;
 	}
 		//Запись в файл
@@ -1383,11 +1396,19 @@ private:
 		return (file.fail() ? 3 : 0);	//Ошибка при финальной записи/закрытии?
 	}
 	void MP_SaveMatchResult(bool won){	//Записать результат матча
-    	std::fstream file(MP_player1.name + ".txt", std::ios::in | std::ios::out);
-    	
-    	//MP_player2.id = 1234;
-    	std::string str, player2_str_id = std::to_string(MP_player2.id), loses_str, wins_str, all_file_str = "", file_str, needed_player_str;
+    	std::fstream file_save(MP_player1.name + ".txt", std::ios::in | std::ios::out);
+    	//MP_player2.id = 12354;
+		std::string str, player2_str_id = std::to_string(MP_player2.id), loses_str, wins_str, all_file_str = "";
     	int loses = 0, wins = 0;
+    	
+    	while(getline(file_save, str))
+			all_file_str += str + "\n";
+		//all_file_str += "\n";
+		file_save.close();
+		
+		std::fstream file(MP_player1.name + ".txt", std::ios::in | std::ios::out);
+		
+    	
     	/*
     	size_t pos = 0, current_pos = 0;
     	
@@ -1412,23 +1433,38 @@ private:
 		system("pause");
 		*/
 		
+		
+		getline(file, str);
+		//std::cout << "Искомая строка: " << player2_str_id;
 		while(true){
 			file >> str;
-			if (file.fail() && !file.eof()){
-				file << MP_player2.id << ' ' << (won ? 0 : 1) << ':' << (won ? 1 : 0) << std::endl;
+			//std::cout << str;
+			//system("pause");
+			//std::cout << str;
+			//system("pause");
+			if (file.fail() && !file.eof() || str.length() == 0){
+				file.close();
+				std::ofstream file2(MP_player1.name + ".txt", std::ios::trunc);
+				file2 << all_file_str;
+				file2 << MP_player2.id << ' ' << MP_player2.name << ' ' << (won ? 0 : 1) << ':' << (won ? 1 : 0) << std::endl;
+				//std::cout << "Не нашёл нужную строку.\n";
+				//system("pause");
 				return;
 			}
             if (str == player2_str_id){
+				//std::cout << "Нашёл нужную строку.\n";
 				break;
 			}
             getline(file, str);
+            str = "";
         }
         
 		file >> str;
 		file >> loses;
 		file.get();
 		file >> wins;
-		
+		//std::cout << str;
+		//system("pause");
 		loses_str = std::to_string(loses);
 		wins_str = std::to_string(wins);
 		
@@ -1649,6 +1685,7 @@ private:
     void Multiplayer(){
     	if (!MP_LoadLastUsedAccount())
     		while(!MP_CreateAccount());
+    	//MP_SaveMatchResult(true);
     	std::string temp;
     	char result;
 	    bool flag, ChoseGame = false;
@@ -1707,6 +1744,7 @@ private:
 			    case '3':
 			        MP_Statistics();
 			        system("pause");
+			        system("cls");
 			        flag = false;
 			        break;
 			    case '0':
@@ -1907,16 +1945,17 @@ private:
 		std::string table_player = "Игрок               ", table_wins = "Победы", table_loses = "Поражения";
 		TopOfTable(table_player, table_wins, table_loses);
 		
-		while(file.fail() || !file.eof()){
+		while(true){
 			getline(file, str, ' ');		//ID
 			getline(file, name, ' ');		//Имя
 			getline(file, loses_str, ':');	//Поражения
 			getline(file, wins_str);		//Победы
 			
-			if (file.fail() && !file.eof()){
-				return;
+			if (file.fail() && !file.eof() || str == ""){
+				break;
 			}
 			CenterOfTable(table_player, table_wins, table_loses, name, wins_str, loses_str);
+			str = "";
         }
         BottomOfTable(table_player, table_wins, table_loses);
 		file.close();
